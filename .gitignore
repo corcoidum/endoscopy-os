@@ -1,0 +1,45 @@
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.vite-dev*.log
+
+# Local editor and operating-system files
+.obsidian/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Local secrets and runtime configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Patient data, database dumps, and local backups
+data/
+uploads/
+backup/
+backups/
+*.dump
+*.sql
+*.bak
+*.xlsx
+*.xls
+*.csv
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~

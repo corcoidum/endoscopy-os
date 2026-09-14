@@ -76,6 +76,18 @@ def _minutes_to_time(value: int) -> time:
     return time(hour=value // 60, minute=value % 60)
 
 
+def to_seoul(value: datetime) -> datetime:
+    """DB Session Timezone과 무관하게 예약 시각을 서울 기준 벽시계로 맞춘다.
+
+    SQLite는 저장 시 Offset을 버리고 서울 벽시계 값을 그대로 돌려주며,
+    PostgreSQL은 Session Timezone(UTC 등) 기준으로 돌려줄 수 있다.
+    """
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=SEOUL)
+    return value.astimezone(SEOUL)
+
+
 def _procedure_codes(appointment: Appointment) -> set[ProcedureCode]:
     return {
         procedure.procedure_code  # type: ignore[misc]
@@ -106,13 +118,11 @@ def _overlaps(
     candidate_end: int,
     appointment: Appointment,
 ) -> bool:
-    existing_start = (
-        appointment.scheduled_start_at.hour * 60
-        + appointment.scheduled_start_at.minute
+    existing_start = _time_to_minutes(
+        to_seoul(appointment.scheduled_start_at).time()
     )
-    existing_end = (
-        appointment.scheduled_end_at.hour * 60
-        + appointment.scheduled_end_at.minute
+    existing_end = _time_to_minutes(
+        to_seoul(appointment.scheduled_end_at).time()
     )
     return candidate_start < existing_end and existing_start < candidate_end
 
@@ -317,8 +327,8 @@ def appointment_snapshot(appointment: Appointment) -> dict[str, object]:
     return {
         "patient_id": str(appointment.patient_id),
         "service_date": appointment.service_date.isoformat(),
-        "start_time": appointment.scheduled_start_at.strftime("%H:%M"),
-        "end_time": appointment.scheduled_end_at.strftime("%H:%M"),
+        "start_time": to_seoul(appointment.scheduled_start_at).strftime("%H:%M"),
+        "end_time": to_seoul(appointment.scheduled_end_at).strftime("%H:%M"),
         "care_type": appointment.care_type,
         "booking_bucket": appointment.booking_bucket,
         "workflow_state": appointment.workflow_state,

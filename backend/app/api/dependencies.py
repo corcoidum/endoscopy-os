@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -15,11 +15,15 @@ from app.core.security import sha256_token
 from app.db.session import get_db
 from app.models import User, UserSession
 from app.services.auth import (
+    as_utc,
     load_session,
     revoke_session,
     session_invalid_reason,
     touch_session,
 )
+
+
+SESSION_EXPIRES_AT_HEADER = "X-Session-Expires-At"
 
 
 @dataclass(slots=True)
@@ -62,6 +66,7 @@ def verify_request_origin(
 
 def get_current_principal(
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> Principal:
@@ -90,6 +95,11 @@ def get_current_principal(
     touch_session(user_session, settings=settings, now=now)
     if db.is_modified(user_session):
         db.commit()
+    # Frontend 자동 로그아웃 Timer가 서버에서 연장된 만료시각을 따라가도록 알린다.
+    response.headers[SESSION_EXPIRES_AT_HEADER] = min(
+        as_utc(user_session.idle_expires_at),
+        as_utc(user_session.absolute_expires_at),
+    ).isoformat()
     principal = Principal(
         user=user_session.user,
         session=user_session,

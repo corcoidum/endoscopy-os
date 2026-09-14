@@ -10,6 +10,7 @@ import {
 import {
   ApiError,
   SESSION_EXPIRED_EVENT,
+  SESSION_REFRESHED_EVENT,
   authApi,
   type AuthUser,
   type ChangePasswordRequest,
@@ -124,6 +125,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener(SESSION_EXPIRED_EVENT, expireSession);
     return () =>
       window.removeEventListener(SESSION_EXPIRED_EVENT, expireSession);
+  }, []);
+
+  useEffect(() => {
+    // 서버가 요청마다 연장한 만료시각으로 자동 로그아웃 Timer를 갱신한다.
+    const refreshSession = (event: Event) => {
+      const expiresAt = (event as CustomEvent<string>).detail;
+      if (typeof expiresAt === "string" && Number.isFinite(Date.parse(expiresAt))) {
+        setSessionExpiresAt(expiresAt);
+      }
+    };
+    window.addEventListener(SESSION_REFRESHED_EVENT, refreshSession);
+    return () =>
+      window.removeEventListener(SESSION_REFRESHED_EVENT, refreshSession);
   }, []);
 
   useEffect(() => {

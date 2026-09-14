@@ -32,6 +32,8 @@ type ApiRequestOptions = {
 };
 
 export const SESSION_EXPIRED_EVENT = "clinic-auth-session-expired";
+export const SESSION_REFRESHED_EVENT = "clinic-auth-session-refreshed";
+const SESSION_EXPIRES_AT_HEADER = "X-Session-Expires-At";
 
 export class ApiError extends Error {
   status: number;
@@ -83,6 +85,15 @@ export async function apiRequest<ResponseBody>(
     throw new ApiError(
       0,
       "원내 서버에 연결할 수 없습니다. 서버 실행 상태와 네트워크 연결을 확인해 주세요.",
+    );
+  }
+
+  const sessionExpiresAt = response.headers.get(SESSION_EXPIRES_AT_HEADER);
+  if (response.ok && sessionExpiresAt && typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent<string>(SESSION_REFRESHED_EVENT, {
+        detail: sessionExpiresAt,
+      }),
     );
   }
 

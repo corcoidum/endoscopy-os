@@ -37,7 +37,7 @@ class AuthenticationResult:
     csrf_token: str
 
 
-def _as_utc(value: datetime) -> datetime:
+def as_utc(value: datetime) -> datetime:
     """SQLite drops timezone information; PostgreSQL keeps it."""
 
     if value.tzinfo is None:
@@ -84,10 +84,10 @@ def authenticate(
     except Exception:
         password_is_valid = False
 
-    if user.locked_until is not None and _as_utc(user.locked_until) > now:
+    if user.locked_until is not None and as_utc(user.locked_until) > now:
         raise _generic_login_error()
 
-    if user.locked_until is not None and _as_utc(user.locked_until) <= now:
+    if user.locked_until is not None and as_utc(user.locked_until) <= now:
         user.locked_until = None
         user.failed_login_count = 0
 
@@ -177,9 +177,9 @@ def session_invalid_reason(
         return "이미 종료된 Session입니다."
     if not user_session.user.is_active:
         return "비활성화된 계정입니다."
-    if _as_utc(user_session.absolute_expires_at) <= now:
+    if as_utc(user_session.absolute_expires_at) <= now:
         return "Session 최대 사용시간이 만료되었습니다."
-    if _as_utc(user_session.idle_expires_at) <= now:
+    if as_utc(user_session.idle_expires_at) <= now:
         return "미사용 시간이 지나 Session이 만료되었습니다."
     if bind_to_ip and str(user_session.created_ip) != client_ip:
         return "접속 위치가 변경되었습니다."
@@ -205,14 +205,14 @@ def touch_session(
 ) -> None:
     now = now or datetime.now(UTC)
     if (
-        now - _as_utc(user_session.last_seen_at)
+        now - as_utc(user_session.last_seen_at)
         < timedelta(seconds=settings.session_touch_interval_seconds)
     ):
         return
     user_session.last_seen_at = now
     user_session.idle_expires_at = min(
         now + timedelta(minutes=settings.session_idle_minutes),
-        _as_utc(user_session.absolute_expires_at),
+        as_utc(user_session.absolute_expires_at),
     )
 
 

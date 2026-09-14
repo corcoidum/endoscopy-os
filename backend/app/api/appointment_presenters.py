@@ -5,6 +5,7 @@ from app.schemas.appointment import (
     AppointmentProcedureResponse,
     AppointmentResponse,
 )
+from app.services.appointments import to_seoul
 from app.services.patients import calculate_age
 
 
@@ -36,8 +37,8 @@ def present_appointment(appointment: Appointment) -> AppointmentResponse:
         age_method=age_method,
         resource_code=appointment.resource.code,
         service_date=appointment.service_date,
-        start_time=appointment.scheduled_start_at.time().replace(tzinfo=None),
-        end_time=appointment.scheduled_end_at.time().replace(tzinfo=None),
+        start_time=to_seoul(appointment.scheduled_start_at).time(),
+        end_time=to_seoul(appointment.scheduled_end_at).time(),
         duration_minutes=duration,
         care_type=appointment.care_type,  # type: ignore[arg-type]
         booking_bucket=appointment.booking_bucket,  # type: ignore[arg-type]

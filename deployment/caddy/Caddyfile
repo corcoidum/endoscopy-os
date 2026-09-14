@@ -1,0 +1,70 @@
+{
+	# Caddy Admin API를 LAN 또는 Container Network에 열지 않는다.
+	admin off
+
+	# Container 내부 OS Trust Store에는 Root CA를 설치하지 않는다. 공개 Root
+	# 인증서는 README 절차에 따라 승인된 Windows PC에만 배포한다.
+	skip_install_trust
+
+	# Caddy 자체 Runtime 오류만 stdout으로 보낸다.
+	# 요청 URI의 검색어에 환자정보가 포함될 수 있어 Access Log는 의도적으로 켜지 않는다.
+	log default {
+		output stdout
+		format json
+		level ERROR
+	}
+}
+
+# 운영 예: CLINIC_SITE_ADDRESS=https://endoscopy.clinic.local
+# 개발 예: CLINIC_SITE_ADDRESS=https://localhost
+# 명시된 주소 이외의 Host Header는 이 Site와 일치하지 않아 처리되지 않는다.
+{$CLINIC_SITE_ADDRESS} {
+	tls internal
+	encode zstd gzip
+
+	# Windows Docker Desktop은 환경에 따라 원격 주소를 NAT 주소로 보일 수 있다.
+	# 실제 운영에서는 아래 Caddy 제한과 함께 Windows Defender Firewall에서
+	# "승인된 원내 Subnet -> TCP 443" Inbound Allow를 반드시 적용한다.
+	@outside_allowed_network {
+		not remote_ip {$CADDY_ALLOWED_SUBNETS}
+	}
+	respond @outside_allowed_network "승인된 원내 네트워크에서만 접속할 수 있습니다." 403
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		X-Robots-Tag "noindex, nofollow, noarchive"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+	}
+
+	# /api Prefix를 제거하지 않고 FastAPI로 그대로 전달한다.
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Vite Build Artifact를 제공하고 알려지지 않은 Frontend Route는 SPA로 돌린다.
+	handle {
+		root * /srv
+
+		@html path / /index.html
+		header @html Cache-Control "no-store"
+
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# TLS 인증서 선택과 원내 Subnet 규칙에 영향을 주지 않는 Container 내부 전용
+# Health endpoint다. Host에는 이 Port를 Publish하지 않는다.
+http://127.0.0.1:8080 {
+	respond /healthz "ok" 200
+}

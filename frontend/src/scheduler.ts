@@ -1,4 +1,10 @@
-import type { Appointment, CareCategory, ProcedureKind, Sex } from "./data";
+import type {
+  Appointment,
+  CareCategory,
+  DepositPaymentMethod,
+  ProcedureKind,
+  Sex,
+} from "./data";
 
 export type CapacityBucket = "STANDARD_MORNING" | "AFTERNOON_EXCEPTION";
 
@@ -18,8 +24,14 @@ export interface BookingDraft {
   screeningCopay: "없음" | "10%";
   bowelPreparation: string;
   medicationsChecked: boolean;
+  medicationDiscontinuationName: string;
+  medicationDiscontinuationDays: string;
+  medicationDoctorConfirmed: boolean;
   additionalExaminations: string[];
   depositPaid: boolean;
+  depositPaymentMethod: DepositPaymentMethod | "미확인";
+  depositAmount?: 10000 | 20000 | 30000;
+  additionalPrepayment: boolean;
   exceptionReason: string;
   exceptionConfirmedBy: string;
   exceptionMemo: string;
@@ -102,6 +114,18 @@ export function validateBooking(
 
   if (!draft.name.trim() || !draft.chartNumber.trim() || !draft.dateOfBirth) {
     errors.push("환자 이름·차트번호·생년월일을 모두 확인해 주세요.");
+  }
+
+  const medicationName = draft.medicationDiscontinuationName.trim();
+  const medicationDays = draft.medicationDiscontinuationDays.trim();
+  if (medicationName || medicationDays) {
+    if (!medicationName || !medicationDays) {
+      errors.push("중단 검토 약품명과 의사가 결정한 중단 일수를 함께 입력해 주세요.");
+    } else if (!/^\d+$/.test(medicationDays)) {
+      errors.push("약제 중단 일수는 0 이상의 정수로 입력해 주세요.");
+    } else if (!draft.medicationDoctorConfirmed) {
+      errors.push("담당 의사의 약제 확인이 필요합니다.");
+    }
   }
 
   if (start % 30 !== 0) {

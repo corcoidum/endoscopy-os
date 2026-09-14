@@ -15,6 +15,10 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 .venv/
 
 # Local secrets and runtime configuration
@@ -39,6 +43,8 @@ backups/
 *.csv
 
 # Temporary files
+.playwright-cli/
+output/playwright/
 *.tmp
 *.temp
 *.swp

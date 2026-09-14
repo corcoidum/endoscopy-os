@@ -9,8 +9,16 @@ export default defineConfig({
     include: ["react", "react-dom/client"],
   },
   server: {
-    host: "0.0.0.0",
-    allowedHosts: ["terminal.local"],
+    host: "127.0.0.1",
+    allowedHosts: ["localhost", "127.0.0.1", "terminal.local"],
+    proxy: {
+      "/api": {
+        target:
+          process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:8000",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
     warmup: {
       clientFiles: ["./src/main.tsx"],
     },

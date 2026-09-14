@@ -2,6 +2,7 @@ export type Sex = "남" | "여";
 export type CareCategory = "검진" | "일반";
 export type ProcedureKind = "위" | "대장" | "위·대장";
 export type CheckState = "완료" | "대기" | "불필요";
+export type DepositPaymentMethod = "현금" | "카드";
 export type AppointmentStatus =
   | "예약"
   | "D-1 확인 필요"
@@ -27,10 +28,23 @@ export interface Appointment {
   medication: CheckState;
   d1: CheckState;
   verification: CheckState;
+  verificationCorrectionReason?: string;
+  verificationCorrectedAt?: string;
   pacs: CheckState;
   status: AppointmentStatus;
   bowelPreparation?: string;
   screeningCopay?: "없음" | "10%";
+  additionalExaminations?: string[];
+  depositPaymentMethod?: DepositPaymentMethod;
+  depositAmount?: 10000 | 20000 | 30000;
+  generalScreening?: "미확인" | "실시" | "미실시";
+  colorectalScreening?: "미확인" | "실시" | "미실시";
+  colorectalScreeningResult?: "미확인" | "음성" | "양성";
+  positiveScreeningColonoscopyMemo?: string;
+  additionalPrepayment?: boolean;
+  medicationDiscontinuationName?: string;
+  medicationDiscontinuationDays?: number;
+  medicationDoctorConfirmed?: boolean;
   afternoonException?: boolean;
   exceptionReason?: string;
   exceptionConfirmedBy?: string;
@@ -64,14 +78,21 @@ export interface PathologyCase {
   note?: string;
 }
 
-export const WEEK_DAYS = [
+export type WeekDay = {
+  readonly date: string;
+  readonly label: string;
+  readonly shortDay: string;
+  readonly today?: boolean;
+};
+
+export const WEEK_DAYS: readonly WeekDay[] = [
   { date: "2026-07-27", label: "월 7/27", shortDay: "월" },
   { date: "2026-07-28", label: "화 7/28", shortDay: "화" },
   { date: "2026-07-29", label: "수 7/29", shortDay: "수" },
   { date: "2026-07-30", label: "목 7/30", shortDay: "목", today: true },
   { date: "2026-07-31", label: "금 7/31", shortDay: "금" },
   { date: "2026-08-01", label: "토 8/1", shortDay: "토" },
-] as const;
+];
 
 export const initialAppointments: Appointment[] = [
   {

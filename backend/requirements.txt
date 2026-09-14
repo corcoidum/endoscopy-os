@@ -1,0 +1,8 @@
+fastapi==0.141.1
+alembic==1.18.5
+pydantic==2.12.5
+pydantic-settings==2.14.2
+SQLAlchemy==2.0.51
+psycopg[binary]==3.3.4
+pwdlib[argon2]==0.3.0
+uvicorn[standard]==0.52.0

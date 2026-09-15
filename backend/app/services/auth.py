@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.core.config import Settings
 from app.core.exceptions import ApiError
 from app.core.security import (
-    generate_csrf_token,
+    derive_csrf_token,
     generate_session_token,
     hash_password,
     normalize_login_id,
@@ -55,6 +55,19 @@ def _user_identity_options() -> tuple[object, ...]:
     )
 
 
+def _record_password_failure(
+    user: User, *, settings: Settings, now: datetime
+) -> bool:
+    """비밀번호 확인 실패를 기록하고 이번 실패로 계정이 잠겼는지 돌려준다."""
+
+    user.failed_login_count += 1
+    user.row_version += 1
+    if user.failed_login_count >= settings.max_login_failures:
+        user.locked_until = now + timedelta(minutes=settings.login_lock_minutes)
+        return True
+    return False
+
+
 def authenticate(
     db: Session,
     *,
@@ -92,10 +105,7 @@ def authenticate(
         user.failed_login_count = 0
 
     if not password_is_valid:
-        user.failed_login_count += 1
-        if user.failed_login_count >= settings.max_login_failures:
-            user.locked_until = now + timedelta(minutes=settings.login_lock_minutes)
-        user.row_version += 1
+        _record_password_failure(user, settings=settings, now=now)
         db.flush()
         db.commit()
         raise _generic_login_error()
@@ -109,7 +119,12 @@ def authenticate(
     user.row_version += 1
 
     raw_session_token = generate_session_token()
-    raw_csrf_token = generate_csrf_token()
+    session_token_hash = sha256_token(
+        raw_session_token, settings.session_secret_value
+    )
+    raw_csrf_token = derive_csrf_token(
+        session_token_hash, settings.session_secret_value
+    )
     absolute_expires_at = now + timedelta(hours=settings.session_absolute_hours)
     idle_expires_at = min(
         now + timedelta(minutes=settings.session_idle_minutes),
@@ -117,9 +132,7 @@ def authenticate(
     )
     user_session = UserSession(
         user=user,
-        session_token_hash=sha256_token(
-            raw_session_token, settings.session_secret_value
-        ),
+        session_token_hash=session_token_hash,
         csrf_secret_hash=sha256_token(
             raw_csrf_token, settings.session_secret_value
         ),
@@ -216,11 +229,20 @@ def touch_session(
     )
 
 
-def rotate_csrf_token(user_session: UserSession, *, settings: Settings) -> str:
-    raw_csrf_token = generate_csrf_token()
-    user_session.csrf_secret_hash = sha256_token(
-        raw_csrf_token, settings.session_secret_value
+def issue_csrf_token(user_session: UserSession, *, settings: Settings) -> str:
+    """Session에 고정된 CSRF Token을 돌려준다.
+
+    새 탭이 `/auth/me`를 호출해도 Token이 바뀌지 않아 기존 탭의 저장 요청이
+    거부되지 않는다.
+    """
+
+    raw_csrf_token = derive_csrf_token(
+        user_session.session_token_hash, settings.session_secret_value
     )
+    expected_hash = sha256_token(raw_csrf_token, settings.session_secret_value)
+    if user_session.csrf_secret_hash != expected_hash:
+        # 이전 방식(요청마다 난수 발급)으로 만든 Session을 한 번만 전환한다.
+        user_session.csrf_secret_hash = expected_hash
     return raw_csrf_token
 
 
@@ -252,20 +274,43 @@ def change_password(
     current_session: UserSession,
     current_password: str,
     new_password: str,
+    settings: Settings,
     now: datetime | None = None,
 ) -> None:
     now = now or datetime.now(UTC)
     locked_user = db.scalar(
         select(User).where(User.id == user.id).with_for_update()
     )
-    if locked_user is None or not verify_password(
-        current_password, locked_user.password_hash
-    ):
-        raise ApiError(
-            status_code=400,
-            code="CURRENT_PASSWORD_INVALID",
-            message="현재 비밀번호가 일치하지 않습니다.",
+    current_password_invalid = ApiError(
+        status_code=400,
+        code="CURRENT_PASSWORD_INVALID",
+        message="현재 비밀번호가 일치하지 않습니다.",
+    )
+    if locked_user is None:
+        raise current_password_invalid
+    if not verify_password(current_password, locked_user.password_hash):
+        # 탈취된 Session으로 현재 비밀번호를 무차별 대입하지 못하도록 로그인 실패와
+        # 같은 한도로 계정을 잠그고 모든 Session을 종료한다.
+        account_locked = _record_password_failure(
+            locked_user, settings=settings, now=now
         )
+        if account_locked:
+            revoke_all_user_sessions(
+                db,
+                user_id=locked_user.id,
+                reason="현재 비밀번호 확인 반복 실패로 계정 잠금",
+                now=now,
+            )
+        db.flush()
+        db.commit()
+        if account_locked:
+            raise ApiError(
+                status_code=401,
+                code="ACCOUNT_LOCKED",
+                message="현재 비밀번호 확인에 여러 번 실패해 계정이 잠겼습니다. 잠시 후 다시 로그인해 주세요.",
+                headers={"WWW-Authenticate": "Session"},
+            )
+        raise current_password_invalid
     if verify_password(new_password, locked_user.password_hash):
         raise ApiError(
             status_code=422,

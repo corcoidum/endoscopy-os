@@ -103,7 +103,6 @@ Pop-Location
 Push-Location frontend
 npm run typecheck
 npm run build
-npm run test:sites
 Pop-Location
 ```
 
@@ -335,7 +334,6 @@ Push-Location frontend
 npm ci
 npm run typecheck
 npm run build
-npm run test:sites
 Pop-Location
 ```
 

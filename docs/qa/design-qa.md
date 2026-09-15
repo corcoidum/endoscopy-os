@@ -6,11 +6,11 @@
   - `C:\yTemp\codex-clipboard-220b842b-9dfe-45a3-8e9d-b2ba00e54803.png` (1643×861): existing weekly workbench and bottom inspector to remove.
   - `C:\yTemp\codex-clipboard-bd5746d5-cf5a-4538-b13e-13d241220623.png` (452×790): existing appointment-detail content reference, not a layout target.
 - Browser-rendered implementation:
-  - `E:\openkiki\codex_root\endoscopy-os\implementation-week.png` (1634×861).
-  - `E:\openkiki\codex_root\endoscopy-os\implementation-detail.png` (1634×861; centered dialog 920×720 at x=357, y=70.5).
+  - [implementation-week.png](implementation-week.png) (1634×861).
+  - [implementation-detail.png](implementation-detail.png) (1634×861; centered dialog 920×720 at x=357, y=70.5).
 - Combined comparison evidence:
-  - `E:\openkiki\codex_root\endoscopy-os\design-qa-week-comparison.png`.
-  - `E:\openkiki\codex_root\endoscopy-os\design-qa-detail-comparison.png`.
+  - [design-qa-week-comparison.png](design-qa-week-comparison.png).
+  - [design-qa-detail-comparison.png](design-qa-detail-comparison.png).
 - Browser: Codex in-app browser, CSS viewport 1634×861, device pixel ratio 1. A second layout check used 1180×768.
 - Density normalization: weekly captures were compared at 1× density and equal 861px height. The detail source was scaled from 452×790 to 412×720 and compared beside the unscaled 920×720 implementation dialog.
 - State: authenticated synthetic visual-QA fixture, weekly view; then `정다은` appointment detail with `업무 요약` selected.

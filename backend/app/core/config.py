@@ -52,6 +52,8 @@ class Settings(BaseSettings):
 
     max_login_failures: int = 5
     login_lock_minutes: int = 15
+    login_ip_max_failures: int = 10
+    login_ip_window_minutes: int = 15
 
     enforce_internal_subnet: bool = True
     allowed_subnets: Annotated[tuple[str, ...], NoDecode] = (
@@ -95,6 +97,8 @@ class Settings(BaseSettings):
         "session_touch_interval_seconds",
         "max_login_failures",
         "login_lock_minutes",
+        "login_ip_max_failures",
+        "login_ip_window_minutes",
     )
     @classmethod
     def positive_security_value(cls, value: int) -> int:

@@ -135,6 +135,21 @@ def update_user_roles(
     return present_user(user)
 
 
+@router.post(
+    "/{user_id}/unlock",
+    response_model=UserResponse,
+    dependencies=[Depends(verify_csrf)],
+)
+def unlock_user_login(
+    user_id: UUID,
+    _: Principal = Depends(identity_manager),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    user = user_service.unlock_user(db, target_user_id=user_id)
+    db.commit()
+    return present_user(user)
+
+
 @router.patch(
     "/{user_id}/activation",
     response_model=UserResponse,

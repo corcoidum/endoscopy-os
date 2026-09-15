@@ -21,4 +21,4 @@ When implementing from a selected generated mock, treat that image as the source
 - Allow deposit amounts of 10,000, 20,000, and 30,000 KRW and distinguish card from cash. Do not infer missing historical amount/payment-method values.
 - A completed secondary identity verification must be correctable through a two-step flow that requires a reason and records correction time; never offer a one-click silent undo.
 
-Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs`, and `tests/sites-worker.test.mjs` intact so the same local prototype can be handed to Sites. Before a Sites handoff, run `npm run build` and `npm run test:sites`; the build must leave `dist/client/index.html`, `dist/server/index.js`, and `dist/.openai/hosting.json`.
+Build app UI in `src/`. The app is deployed only inside the clinic network through Docker Compose and Caddy; do not add external hosting (Sites/Workers) artifacts. `npm run build` must leave `dist/client/index.html`, which `frontend/Dockerfile` copies into the Caddy static volume.

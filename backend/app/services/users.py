@@ -191,6 +191,19 @@ def replace_user_roles(
     return user
 
 
+def unlock_user(db: Session, *, target_user_id: UUID) -> User:
+    """로그인 실패로 잠긴 계정을 관리자가 즉시 해제한다."""
+
+    user = get_user(db, target_user_id, for_update=True)
+    if user.failed_login_count == 0 and user.locked_until is None:
+        return user
+    user.failed_login_count = 0
+    user.locked_until = None
+    user.row_version += 1
+    db.flush()
+    return user
+
+
 def set_user_activation(
     db: Session,
     *,

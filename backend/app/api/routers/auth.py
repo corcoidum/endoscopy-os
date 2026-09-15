@@ -20,11 +20,13 @@ from app.schemas.identity import (
     LoginRequest,
     LoginResponse,
 )
+from app.core.exceptions import ApiError
+from app.core.rate_limit import LoginFailureThrottle
 from app.services.auth import (
     authenticate,
     change_password,
+    issue_csrf_token,
     revoke_session,
-    rotate_csrf_token,
 )
 
 
@@ -34,7 +36,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post(
     "/login",
     response_model=LoginResponse,
-    responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+    },
     dependencies=[Depends(verify_request_origin)],
 )
 def login(
@@ -44,15 +50,31 @@ def login(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> LoginResponse:
-    result = authenticate(
-        db,
-        login_id=payload.login_id,
-        password=payload.password.get_secret_value(),
-        client_ip=resolve_client_ip(request, settings),
-        user_agent=request.headers.get("user-agent"),
-        settings=settings,
-    )
+    client_ip = resolve_client_ip(request, settings)
+    throttle: LoginFailureThrottle = request.app.state.login_throttle
+    retry_after = throttle.retry_after_seconds(client_ip)
+    if retry_after is not None:
+        raise ApiError(
+            status_code=429,
+            code="LOGIN_RATE_LIMITED",
+            message="로그인 실패가 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    try:
+        result = authenticate(
+            db,
+            login_id=payload.login_id,
+            password=payload.password.get_secret_value(),
+            client_ip=client_ip,
+            user_agent=request.headers.get("user-agent"),
+            settings=settings,
+        )
+    except ApiError as exc:
+        if exc.status_code == 401:
+            throttle.record_failure(client_ip)
+        raise
     db.commit()
+    throttle.reset(client_ip)
     response.set_cookie(
         key=settings.session_cookie_name,
         value=result.session_token,
@@ -80,9 +102,10 @@ def me(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> CurrentSessionResponse:
-    # 새로고침 뒤 Browser memory에서 잃은 CSRF Token을 안전하게 재발급한다.
-    csrf_token = rotate_csrf_token(principal.session, settings=settings)
-    db.commit()
+    # 새로고침·새 탭에서도 같은 Session의 CSRF Token을 그대로 돌려준다.
+    csrf_token = issue_csrf_token(principal.session, settings=settings)
+    if db.is_modified(principal.session):
+        db.commit()
     return CurrentSessionResponse(
         user=present_authenticated_user(principal.user),
         csrf_token=csrf_token,
@@ -130,6 +153,7 @@ def update_password(
     payload: ChangePasswordRequest,
     principal: Principal = Depends(get_current_principal),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> MessageResponse:
     change_password(
         db,
@@ -137,6 +161,7 @@ def update_password(
         current_session=principal.session,
         current_password=payload.current_password.get_secret_value(),
         new_password=payload.new_password.get_secret_value(),
+        settings=settings,
     )
     db.commit()
     return MessageResponse(

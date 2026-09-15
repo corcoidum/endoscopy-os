@@ -8,7 +8,9 @@ from tests.conftest import ADMIN_PASSWORD, TEST_ORIGIN, login_admin
 from app.models import User
 
 
-def test_login_me_rotates_csrf_and_logout(client: TestClient) -> None:
+def test_login_me_keeps_csrf_stable_across_tabs_and_logout(
+    client: TestClient,
+) -> None:
     login_payload = login_admin(client)
     set_cookie = client.cookies.get("clinic_session_test")
     assert set_cookie
@@ -24,20 +26,20 @@ def test_login_me_rotates_csrf_and_logout(client: TestClient) -> None:
         "patient.update",
     ]
 
+    # 새 탭이 /me를 호출해도 기존 탭이 가진 Token은 계속 유효해야 한다.
     me_response = client.get("/api/auth/me")
     assert me_response.status_code == 200
-    rotated_csrf = me_response.json()["csrf_token"]
-    assert rotated_csrf != original_csrf
+    assert me_response.json()["csrf_token"] == original_csrf
 
     rejected_logout = client.post(
         "/api/auth/logout",
-        headers={"Origin": TEST_ORIGIN, "X-CSRF-Token": str(original_csrf)},
+        headers={"Origin": TEST_ORIGIN, "X-CSRF-Token": "forged-token"},
     )
     assert rejected_logout.status_code == 403
 
     logout_response = client.post(
         "/api/auth/logout",
-        headers={"Origin": TEST_ORIGIN, "X-CSRF-Token": rotated_csrf},
+        headers={"Origin": TEST_ORIGIN, "X-CSRF-Token": str(original_csrf)},
     )
     assert logout_response.status_code == 200
 

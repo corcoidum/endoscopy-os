@@ -11,6 +11,7 @@ from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import ApiError, register_exception_handlers
 from app.core.network import InternalNetworkMiddleware
+from app.core.rate_limit import LoginFailureThrottle
 from app.db.session import get_db
 from app.schemas.common import HealthResponse
 
@@ -26,6 +27,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else None,
     )
     app.state.settings = runtime_settings
+    app.state.login_throttle = LoginFailureThrottle(
+        max_failures=runtime_settings.login_ip_max_failures,
+        window_seconds=runtime_settings.login_ip_window_minutes * 60,
+    )
     app.dependency_overrides[get_settings] = lambda: runtime_settings
 
     app.add_middleware(

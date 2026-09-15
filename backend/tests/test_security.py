@@ -7,7 +7,7 @@ from sqlalchemy import make_url
 
 from app.core.config import Settings
 from app.core.security import (
-    generate_csrf_token,
+    derive_csrf_token,
     generate_session_token,
     hash_password,
     normalize_login_id,
@@ -33,10 +33,14 @@ def test_password_uses_one_way_argon2id_hash() -> None:
 
 
 def test_session_and_csrf_tokens_have_independent_hashes() -> None:
+    secret = "synthetic-session-secret-at-least-32-bytes"
     session_token = generate_session_token()
-    csrf_token = generate_csrf_token()
+    session_hash = sha256_token(session_token, secret)
+    csrf_token = derive_csrf_token(session_hash, secret)
 
     assert session_token != csrf_token
+    assert csrf_token == derive_csrf_token(session_hash, secret)
+    assert csrf_token != derive_csrf_token(session_hash, secret + "-other")
     assert len(sha256_token(session_token)) == 64
     assert sha256_token(session_token) != sha256_token(csrf_token)
 

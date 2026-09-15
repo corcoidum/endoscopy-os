@@ -32,8 +32,9 @@ try {
     & npm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw "Frontend build가 실패했습니다." }
 
-    & npm.cmd run test:sites
-    if ($LASTEXITCODE -ne 0) { throw "Frontend artifact test가 실패했습니다." }
+    if (-not (Test-Path ".\dist\client\index.html")) {
+        throw "Frontend build 결과물(dist\client\index.html)이 없습니다."
+    }
 }
 finally {
     Pop-Location

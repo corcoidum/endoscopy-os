@@ -28,7 +28,14 @@ def resolve_client_ip(request: Request, settings: Settings) -> str:
         and forwarded_for
         and _belongs_to_any(direct_ip, settings.trusted_proxy_subnets)
     ):
-        return forwarded_for.split(",", maxsplit=1)[0].strip()
+        # 가장 가까운 Proxy(오른쪽)부터 거슬러 올라가 신뢰 Proxy가 아닌 첫 주소를 쓴다.
+        # 왼쪽 값은 Client가 임의로 넣을 수 있으므로 그대로 믿지 않는다.
+        hops = [hop.strip() for hop in forwarded_for.split(",") if hop.strip()]
+        for hop in reversed(hops):
+            if not _belongs_to_any(hop, settings.trusted_proxy_subnets):
+                return hop
+        if hops:
+            return hops[0]
     return direct_ip
 
 

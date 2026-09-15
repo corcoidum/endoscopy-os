@@ -40,6 +40,7 @@ def present_appointment(appointment: Appointment) -> AppointmentResponse:
         start_time=to_seoul(appointment.scheduled_start_at).time(),
         end_time=to_seoul(appointment.scheduled_end_at).time(),
         duration_minutes=duration,
+        procedure_set=appointment.procedure_set,  # type: ignore[arg-type]
         care_type=appointment.care_type,  # type: ignore[arg-type]
         booking_bucket=appointment.booking_bucket,  # type: ignore[arg-type]
         workflow_state=appointment.workflow_state,  # type: ignore[arg-type]

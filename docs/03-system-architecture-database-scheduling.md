@@ -528,6 +528,7 @@ MVP에는 `capacity_units=1`인 Resource 한 개만 활성화한다. Resource �
 | `workflow_state` | `varchar(30)` | N | `DRAFT` | IDX | - | - | 간접 | 예 |
 | `occupies_slot` | `boolean generated` | N | 상태식 | Partial GiST | - | - | 아니오 | 파생 |
 | `schedule_policy_version` | `varchar(80)` | N | - | IDX | - | - | 아니오 | 예 |
+| `procedure_set` | `varchar(20)` | Y | - | - | - | - | 아니오 | 예 |
 | `exception_reason` | `text` | Y | - | - | - | - | 민감 | 예 |
 | `exception_registered_by_user_id` | `uuid` | Y | - | IDX | - | `users.id` | 간접 | 예 |
 | `exception_confirmed_by_user_id` | `uuid` | Y | - | IDX | - | `users.id` | 간접 | 예 |
@@ -535,7 +536,7 @@ MVP에는 `capacity_units=1`인 Resource 한 개만 활성화한다. Resource �
 | `exception_memo` | `text` | Y | - | - | - | - | 민감 | 예 |
 | `hold_expires_at` | `timestamptz` | Y | - | IDX | - | - | 아니오 | 예 |
 
-`care_type`은 `SCREENING` 또는 `GENERAL`이다. 검진은 `year(service_date)-year(birth_date)`, 일반은 생일 경과 여부를 반영한 만 나이를 조회 시 계산한다.
+`care_type`은 `SCREENING` 또는 `GENERAL`이다. 검진은 `year(service_date)-year(birth_date)`, 일반은 생일 경과 여부를 반영한 만 나이를 조회 시 계산한다. `procedure_set`은 위·대장 동시검사에서만 `SET_60` 또는 `SET_90`으로 저장하며, 사람 이름이 아닌 예약 점유시간 운영 구분이다. 위 단독은 30분, 대장 단독은 60분으로 고정한다.
 
 `occupies_slot=true` 상태는 `BOOKED`, `D1_REQUIRED`, `RECONFIRM_REQUIRED`, `ARRIVED`, `PREP_READY`, `IN_PROGRESS`, `COMPLETED`, `ON_HOLD`, `NO_SHOW_PENDING`이다. `DRAFT`, `CANCELLED`, 확정 `NO_SHOW`는 점유하지 않는다. 완료 검사는 과거 실제 점유구간을 보존하며 같은 과거 시간으로 Backdate 입력하는 것을 차단한다.
 
@@ -1183,7 +1184,8 @@ FUNCTION calculate_procedure_duration(procedures):
         RETURN ERROR(PROCEDURE_REQUIRED)
 
     IF procedures.gastroscopy AND procedures.colonoscopy:
-        RETURN {minutes: 60, gastroscopy_increment: 1,
+        minutes = 90 IF procedures.procedure_set == SET_90 ELSE 60
+        RETURN {minutes: minutes, gastroscopy_increment: 1,
                 colonoscopy_increment: 1, patient_increment: 1}
 
     IF procedures.gastroscopy:

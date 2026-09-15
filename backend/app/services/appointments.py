@@ -21,6 +21,7 @@ from app.schemas.appointment import (
     BookingBucket,
     CareType,
     ProcedureCode,
+    ProcedureSet,
 )
 
 
@@ -45,14 +46,27 @@ class ScheduleContext:
     colon_count: int
 
 
-def procedure_duration(procedure_codes: set[ProcedureCode]) -> int:
+def procedure_duration(
+    procedure_codes: set[ProcedureCode],
+    procedure_set: ProcedureSet | None = None,
+) -> int:
     if not procedure_codes:
         raise ApiError(
             status_code=422,
             code="PROCEDURE_REQUIRED",
             message="위 또는 대장내시경을 하나 이상 선택해 주세요.",
         )
-    return 30 if procedure_codes == {"UPPER"} else 60
+    if procedure_set is not None and procedure_codes != {"UPPER", "COLON"}:
+        raise ApiError(
+            status_code=422,
+            code="PROCEDURE_SET_INVALID",
+            message="세트60·세트90은 위·대장 동시검사에서만 선택할 수 있습니다.",
+        )
+    if procedure_codes == {"UPPER"}:
+        return 30
+    if procedure_codes == {"COLON"}:
+        return 60
+    return 90 if procedure_set == "SET_90" else 60
 
 
 def base_rule_for(service_date: date) -> ScheduleRule:
@@ -133,9 +147,10 @@ def validate_standard_morning(
     start_time: time,
     procedure_codes: set[ProcedureCode],
     context: ScheduleContext,
+    procedure_set: ProcedureSet | None = None,
 ) -> int:
     rule = base_rule_for(service_date)
-    duration = procedure_duration(procedure_codes)
+    duration = procedure_duration(procedure_codes, procedure_set)
     start_minute = _time_to_minutes(start_time)
     end_minute = start_minute + duration
 
@@ -209,6 +224,7 @@ def available_slots(
     service_date: date,
     procedure_codes: set[ProcedureCode],
     booking_bucket: BookingBucket,
+    procedure_set: ProcedureSet | None = None,
 ) -> tuple[int, list[tuple[time, time]]]:
     if booking_bucket != "STANDARD_MORNING":
         raise ApiError(
@@ -217,7 +233,7 @@ def available_slots(
             message="14:00 예외 승인 규칙은 Sprint 3B에서 제공됩니다.",
         )
     rule = base_rule_for(service_date)
-    duration = procedure_duration(procedure_codes)
+    duration = procedure_duration(procedure_codes, procedure_set)
     context = _load_context(db, service_date)
     slots: list[tuple[time, time]] = []
     for start_minute in range(
@@ -231,6 +247,7 @@ def available_slots(
                 service_date=service_date,
                 start_time=candidate_time,
                 procedure_codes=procedure_codes,
+                procedure_set=procedure_set,
                 context=context,
             )
         except ApiError:
@@ -251,6 +268,7 @@ def create_appointment(
     booking_bucket: BookingBucket,
     procedures: list[AppointmentProcedureInput],
     actor_user_id: UUID,
+    procedure_set: ProcedureSet | None = None,
 ) -> Appointment:
     if booking_bucket != "STANDARD_MORNING":
         raise ApiError(
@@ -280,6 +298,7 @@ def create_appointment(
         service_date=service_date,
         start_time=start_time,
         procedure_codes=codes,
+        procedure_set=procedure_set,
         context=context,
     )
     starts_at = datetime.combine(service_date, start_time, tzinfo=SEOUL)
@@ -295,6 +314,7 @@ def create_appointment(
         workflow_state="BOOKED",
         occupies_slot=True,
         schedule_policy_version=BASE_POLICY_VERSION,
+        procedure_set=(procedure_set or "SET_60") if codes == {"UPPER", "COLON"} else None,
         created_by_user_id=actor_user_id,
         updated_by_user_id=actor_user_id,
         procedures=[
@@ -328,6 +348,7 @@ def appointment_snapshot(appointment: Appointment) -> dict[str, object]:
         "patient_id": str(appointment.patient_id),
         "service_date": appointment.service_date.isoformat(),
         "start_time": to_seoul(appointment.scheduled_start_at).strftime("%H:%M"),
+        "procedure_set": appointment.procedure_set,
         "end_time": to_seoul(appointment.scheduled_end_at).strftime("%H:%M"),
         "care_type": appointment.care_type,
         "booking_bucket": appointment.booking_bucket,

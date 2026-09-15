@@ -31,18 +31,61 @@ def _book(
     service_date: str,
     start_time: str,
     procedures: list[dict[str, str]],
+    procedure_set: str | None = None,
 ) -> object:
+    payload: dict[str, object] = {
+        "patient_id": patient_id,
+        "service_date": service_date,
+        "start_time": start_time,
+        "care_type": "GENERAL",
+        "procedures": procedures,
+    }
+    if procedure_set is not None:
+        payload["procedure_set"] = procedure_set
     return client.post(
         "/api/appointments",
         headers={"Origin": TEST_ORIGIN, "X-CSRF-Token": csrf_token},
-        json={
-            "patient_id": patient_id,
-            "service_date": service_date,
-            "start_time": start_time,
-            "care_type": "GENERAL",
-            "procedures": procedures,
-        },
+        json=payload,
     )
+
+
+def test_combined_set_90_occupies_ninety_minutes(client: TestClient) -> None:
+    login = login_admin(client)
+    csrf_token = str(login["csrf_token"])
+    patient_id = _create_patient(client, csrf_token)
+
+    availability = client.get(
+        "/api/appointments/availability",
+        params=[
+            ("service_date", "2026-09-10"),
+            ("procedures", "UPPER"),
+            ("procedures", "COLON"),
+            ("procedure_set", "SET_90"),
+        ],
+    )
+    assert availability.status_code == 200, availability.text
+    assert availability.json()["duration_minutes"] == 90
+    assert availability.json()["procedure_set"] == "SET_90"
+    assert availability.json()["slots"][0] == {
+        "start_time": "09:00:00",
+        "end_time": "10:30:00",
+    }
+
+    response = _book(
+        client,
+        csrf_token=csrf_token,
+        patient_id=patient_id,
+        service_date="2026-09-10",
+        start_time="09:00",
+        procedures=[
+            {"procedure_code": "UPPER", "sedation_mode": "SEDATED"},
+            {"procedure_code": "COLON", "sedation_mode": "SEDATED"},
+        ],
+        procedure_set="SET_90",
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["duration_minutes"] == 90
+    assert response.json()["procedure_set"] == "SET_90"
 
 
 def test_create_list_and_history_are_persisted(

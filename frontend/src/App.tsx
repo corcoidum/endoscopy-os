@@ -6,7 +6,6 @@ import {
   type CSSProperties,
 } from "react";
 import {
-  WEEK_DAYS,
   calculateAge,
   formatAgeSex,
   initialAppointments,
@@ -153,6 +152,74 @@ const ROLE_LABELS: Record<string, string> = {
   ENDOSCOPY_STAFF: "내시경 담당자",
   READ_ONLY: "조회 전용",
 };
+
+const REFERENCE_TODAY = "2026-07-30";
+const KOREAN_WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
+
+function parseIsoDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function toIsoDate(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function addCalendarDays(value: string, amount: number): string {
+  const date = parseIsoDate(value);
+  date.setDate(date.getDate() + amount);
+  return toIsoDate(date);
+}
+
+function addCalendarMonths(value: string, amount: number): string {
+  const date = parseIsoDate(value);
+  date.setDate(1);
+  date.setMonth(date.getMonth() + amount);
+  return toIsoDate(date);
+}
+
+function startOfCalendarWeek(value: string): string {
+  const date = parseIsoDate(value);
+  const mondayOffset = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - mondayOffset);
+  return toIsoDate(date);
+}
+
+function weekDaysFor(value: string) {
+  const monday = startOfCalendarWeek(value);
+  return Array.from({ length: 6 }, (_, index) => {
+    const iso = addCalendarDays(monday, index);
+    const date = parseIsoDate(iso);
+    return {
+      date: iso,
+      label: `${KOREAN_WEEKDAYS[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}`,
+      today: iso === REFERENCE_TODAY,
+    };
+  });
+}
+
+function koreanDateLabel(value: string): string {
+  const date = parseIsoDate(value);
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 ${KOREAN_WEEKDAYS[date.getDay()]}요일`;
+}
+
+function periodLabel(view: ViewId, value: string): string {
+  const date = parseIsoDate(value);
+  if (view === "month") return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+  if (view === "day") return koreanDateLabel(value);
+  const monday = startOfCalendarWeek(value);
+  const saturday = addCalendarDays(monday, 5);
+  const mondayDate = parseIsoDate(monday);
+  const saturdayDate = parseIsoDate(saturday);
+  const weekNumber = Math.ceil(
+    ((mondayDate.getTime() - new Date(mondayDate.getFullYear(), 0, 1).getTime()) /
+      86400000 +
+      new Date(mondayDate.getFullYear(), 0, 1).getDay() +
+      1) /
+      7,
+  );
+  return `${mondayDate.getFullYear()}년 ${mondayDate.getMonth() + 1}월 ${mondayDate.getDate()}일 ~ ${saturdayDate.getMonth() + 1}월 ${saturdayDate.getDate()}일 (${weekNumber}주)`;
+}
 
 function hasAnyPermission(user: AuthUser, permissions: string[]) {
   return (
@@ -714,6 +781,9 @@ function AppointmentCard({
     >
       <span className="appointment-card__time">
         {appointment.start}–{end}
+        {appointment.procedure === "위·대장" && (
+          <span className="mini-tag">{appointment.procedureSet ?? `세트${appointment.duration}`}</span>
+        )}
         {isAfternoon && <span className="mini-tag">예외</span>}
       </span>
       <span className="appointment-card__identity">
@@ -761,12 +831,17 @@ function WeekSchedule({
   selectedId,
   onSelect,
   search,
+  calendarDate,
+  onSelectDate,
 }: {
   appointments: Appointment[];
   selectedId?: string;
   onSelect: (id: string) => void;
   search: string;
+  calendarDate: string;
+  onSelectDate: (date: string) => void;
 }) {
+  const weekDays = weekDaysFor(calendarDate);
   const normalizedSearch = search.trim().toLowerCase();
   const filteredAppointments = normalizedSearch
     ? appointments.filter(
@@ -780,11 +855,11 @@ function WeekSchedule({
     <section className="schedule-panel" aria-label="월요일부터 토요일 주간 일정">
       <div className="print-title">
         <strong>내시경 주간 일정</strong>
-        <span>2026-07-27 ~ 2026-08-01 · 원내업무용 · 사용 후 파쇄</span>
+        <span>{startOfCalendarWeek(calendarDate)} ~ {addCalendarDays(startOfCalendarWeek(calendarDate), 5)} · 원내업무용 · 사용 후 파쇄</span>
       </div>
       <div className="week-board">
         <div className="week-board__corner">시간</div>
-        {WEEK_DAYS.map((day) => {
+        {weekDays.map((day) => {
           const dayAppointments = appointments.filter(
             (appointment) => appointment.date === day.date,
           );
@@ -800,9 +875,12 @@ function WeekSchedule({
           ).length;
 
           return (
-            <div
+            <button
+              type="button"
               className={`day-heading ${day.today ? "is-today" : ""}`}
               key={day.date}
+              onClick={() => onSelectDate(day.date)}
+              title={`${day.label} 일간 보기`}
             >
               <span>
                 {day.label}
@@ -817,11 +895,11 @@ function WeekSchedule({
                   10:30 점검 차단
                 </span>
               )}
-            </div>
+            </button>
           );
         })}
         <TimeAxis />
-        {WEEK_DAYS.map((day) => {
+        {weekDays.map((day) => {
           const dayAppointments = filteredAppointments.filter(
             (appointment) => appointment.date === day.date,
           );
@@ -1201,10 +1279,26 @@ function TodayView({
   );
 }
 
-function MonthView({ appointments }: { appointments: Appointment[] }) {
-  const days = Array.from({ length: 35 }, (_, index) => {
-    const offset = index - 2;
-    const date = new Date(2026, 6, 1 + offset);
+function MonthView({
+  appointments,
+  calendarDate,
+  selectedDate,
+  onSelectDate,
+}: {
+  appointments: Appointment[];
+  calendarDate: string;
+  selectedDate: string;
+  onSelectDate: (date: string) => void;
+}) {
+  const visibleMonth = parseIsoDate(calendarDate);
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const leadingDays = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cellCount = Math.ceil((leadingDays + daysInMonth) / 7) * 7;
+  const days = Array.from({ length: cellCount }, (_, index) => {
+    const date = new Date(year, month, 1 + index - leadingDays);
     const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
       2,
       "0",
@@ -1212,7 +1306,7 @@ function MonthView({ appointments }: { appointments: Appointment[] }) {
     return {
       iso,
       day: date.getDate(),
-      currentMonth: date.getMonth() === 6,
+      currentMonth: date.getMonth() === month,
       sunday: date.getDay() === 0,
     };
   });
@@ -1222,7 +1316,7 @@ function MonthView({ appointments }: { appointments: Appointment[] }) {
       <div className="view-title">
         <div>
           <span className="eyebrow">월간 Capacity</span>
-          <h1>2026년 7월</h1>
+          <h1>{year}년 {month + 1}월</h1>
           <p>날짜별 환자·검사 건수와 준비 미완료를 압축해 표시합니다.</p>
         </div>
       </div>
@@ -1241,11 +1335,14 @@ function MonthView({ appointments }: { appointments: Appointment[] }) {
             (item) => item.procedure === "대장" || item.procedure === "위·대장",
           ).length;
           return (
-            <article
+            <button
+              type="button"
               className={`month-cell ${!day.currentMonth ? "is-muted" : ""} ${
                 day.sunday ? "is-closed" : ""
-              }`}
+              } ${day.iso === selectedDate ? "is-selected" : ""}`}
               key={day.iso}
+              onClick={() => onSelectDate(day.iso)}
+              aria-label={`${koreanDateLabel(day.iso)} 일간 보기`}
             >
               <span>{day.day}</span>
               {day.sunday ? (
@@ -1268,7 +1365,7 @@ function MonthView({ appointments }: { appointments: Appointment[] }) {
               ) : (
                 <small>예약 가능</small>
               )}
-            </article>
+            </button>
           );
         })}
       </div>
@@ -1276,31 +1373,73 @@ function MonthView({ appointments }: { appointments: Appointment[] }) {
   );
 }
 
+function appointmentServiceLabels(appointment: Appointment): string[] {
+  const labels: string[] = [];
+  if (appointment.careCategory === "검진" || appointment.generalScreening === "실시") {
+    labels.push("일반검진");
+  }
+  labels.push(
+    ...(appointment.additionalExaminations ?? []).filter((item) =>
+      item.endsWith("초음파"),
+    ),
+  );
+  return labels;
+}
+
 function DayView({
   appointments,
   selectedId,
   onSelect,
+  calendarDate,
 }: {
   appointments: Appointment[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  calendarDate: string;
 }) {
-  const todayAppointments = appointments.filter(
-    (appointment) => appointment.date === "2026-07-30",
-  );
+  const todayAppointments = appointments
+    .filter((appointment) => appointment.date === calendarDate)
+    .sort((first, second) => first.start.localeCompare(second.start));
+  const serviceSummary = [
+    "일반검진",
+    "복부초음파",
+    "갑상선초음파",
+    "심장초음파",
+    "경동맥초음파",
+  ].map((label) => ({
+    label,
+    count: todayAppointments.filter((appointment) =>
+      appointmentServiceLabels(appointment).includes(label),
+    ).length,
+  }));
+  const date = parseIsoDate(calendarDate);
 
   return (
     <section className="view-surface">
       <div className="view-title">
         <div>
           <span className="eyebrow">당일 검사 업무</span>
-          <h1>7월 30일 일간</h1>
-          <p>PACS 입력과 이중확인 상태를 검사 순서대로 봅니다.</p>
+          <h1>{date.getMonth() + 1}월 {date.getDate()}일 일간</h1>
+          <p>내시경과 일반검진·초음파 시행 항목을 시간순으로 한 번에 봅니다.</p>
         </div>
+      </div>
+      <div className="day-summary" aria-label="당일 검사 대상자 요약">
+        <div className="day-summary__total">
+          <span>검사 대상자</span>
+          <strong>{todayAppointments.length}명</strong>
+        </div>
+        {serviceSummary.map((item) => (
+          <div key={item.label} className={item.count > 0 ? "has-items" : ""}>
+            <span>{item.label}</span>
+            <strong>{item.count}명</strong>
+          </div>
+        ))}
       </div>
       <div className="day-workbench">
         <div className="day-timeline">
-          {todayAppointments.map((appointment) => (
+          {todayAppointments.length === 0 ? (
+            <div className="day-empty">선택한 날짜에 등록된 검사 대상자가 없습니다.</div>
+          ) : todayAppointments.map((appointment) => (
             <button
               className={`day-row ${selectedId === appointment.id ? "is-selected" : ""}`}
               key={appointment.id}
@@ -1314,6 +1453,13 @@ function DayView({
               </span>
               <span>{formatAgeSex(appointment)}</span>
               <span>{procedureLabel(appointment)}</span>
+              <span className="day-row__services">
+                {appointmentServiceLabels(appointment).length > 0
+                  ? appointmentServiceLabels(appointment).map((label) => (
+                      <em key={label}>{label}</em>
+                    ))
+                  : <small>추가 시행 없음</small>}
+              </span>
               <StateLabel state={appointment.verification} />
               <StateLabel state={appointment.pacs} />
             </button>
@@ -1654,7 +1800,7 @@ function AdminView() {
     },
     {
       title: "검사 소요시간",
-      description: "위 30분 / 대장 60분 / 위·대장 60분",
+      description: "위 30분 / 대장 60분 / 위·대장 세트60·세트90 선택",
       value: "적용 중",
     },
     {
@@ -1723,6 +1869,8 @@ function draftFromAppointment(appointment?: Appointment): BookingDraft {
       sex: appointment.sex,
       careCategory: appointment.careCategory,
       procedure: appointment.procedure,
+      procedureSet:
+        appointment.procedureSet ?? (appointment.duration === 90 ? "세트90" : "세트60"),
       upperSedation: appointment.upperSedation ?? false,
       colonSedation: appointment.colonSedation ?? false,
       date: appointment.date,
@@ -1757,6 +1905,7 @@ function draftFromAppointment(appointment?: Appointment): BookingDraft {
     sex: "여",
     careCategory: "검진",
     procedure: "위·대장",
+    procedureSet: "세트60",
     upperSedation: true,
     colonSedation: false,
     date: "2026-08-01",
@@ -1921,11 +2070,33 @@ function BookingWizard({
                   key={procedure}
                 >
                   <strong>{procedure}</strong>
-                  <small>{procedureDuration(procedure)}분 점유</small>
+                  <small>
+                    {procedure === "위·대장"
+                      ? `${draft.procedureSet} · ${procedureDuration(procedure, draft.procedureSet)}분`
+                      : `${procedureDuration(procedure)}분 점유`}
+                  </small>
                 </button>
               ))}
             </div>
           </label>
+          {draft.procedure === "위·대장" && (
+            <fieldset className="field procedure-set-field">
+              <legend>진행담당</legend>
+              <div className="segmented-control">
+                {(["세트60", "세트90"] as const).map((procedureSet) => (
+                  <button
+                    type="button"
+                    className={draft.procedureSet === procedureSet ? "is-active" : ""}
+                    onClick={() => patchDraft("procedureSet", procedureSet)}
+                    key={procedureSet}
+                  >
+                    {procedureSet} · {procedureSet === "세트60" ? "60분" : "90분"}
+                  </button>
+                ))}
+              </div>
+              <small>사람 이름 대신 실제 점유시간 기준으로 선택합니다.</small>
+            </fieldset>
+          )}
           <div className="form-grid form-grid--two">
             {(draft.procedure === "위" || draft.procedure === "위·대장") && (
               <fieldset className="field">
@@ -3128,6 +3299,7 @@ function Workbench({
   logoutError: string;
 }) {
   const [activeView, setActiveView] = useState<ViewId>("week");
+  const [calendarDate, setCalendarDate] = useState(REFERENCE_TODAY);
   const [appointments, setAppointments] =
     useState<Appointment[]>(initialAppointments);
   const [pathologyCases, setPathologyCases] =
@@ -3174,6 +3346,25 @@ function Workbench({
   const openAppointmentDetail = (appointmentId: string) => {
     setSelectedId(appointmentId);
     setDrawer({ kind: "appointment", id: appointmentId });
+  };
+
+  const openDay = (date: string) => {
+    setCalendarDate(date);
+    setActiveView("day");
+    const firstAppointment = appointments
+      .filter((appointment) => appointment.date === date)
+      .sort((first, second) => first.start.localeCompare(second.start))[0];
+    if (firstAppointment) setSelectedId(firstAppointment.id);
+  };
+
+  const moveCalendar = (direction: -1 | 1) => {
+    if (activeView === "month") {
+      setCalendarDate((current) => addCalendarMonths(current, direction));
+      return;
+    }
+    setCalendarDate((current) =>
+      addCalendarDays(current, direction * (activeView === "week" ? 7 : 1)),
+    );
   };
 
   const openNewBooking = () => {
@@ -3238,6 +3429,8 @@ function Workbench({
         editingAppointment.date !== draft.date ||
         editingAppointment.start !== draft.start ||
         editingAppointment.procedure !== draft.procedure ||
+        (draft.procedure === "위·대장" &&
+          editingAppointment.procedureSet !== draft.procedureSet) ||
         editingAppointment.name !== draft.name ||
         editingAppointment.chartNumber !== draft.chartNumber ||
         editingAppointment.dateOfBirth !== draft.dateOfBirth ||
@@ -3255,6 +3448,8 @@ function Workbench({
                 sex: draft.sex,
                 careCategory: draft.careCategory,
                 procedure: draft.procedure,
+                procedureSet:
+                  draft.procedure === "위·대장" ? draft.procedureSet : undefined,
                 upperSedation: draft.upperSedation,
                 colonSedation: draft.colonSedation,
                 date: draft.date,
@@ -3313,6 +3508,8 @@ function Workbench({
         sex: draft.sex,
         careCategory: draft.careCategory,
         procedure: draft.procedure,
+        procedureSet:
+          draft.procedure === "위·대장" ? draft.procedureSet : undefined,
         upperSedation: draft.upperSedation,
         colonSedation: draft.colonSedation,
         screeningCopay: draft.screeningCopay,
@@ -3433,13 +3630,23 @@ function Workbench({
         />
       );
     }
-    if (activeView === "month") return <MonthView appointments={appointments} />;
+    if (activeView === "month") {
+      return (
+        <MonthView
+          appointments={appointments}
+          calendarDate={calendarDate}
+          selectedDate={calendarDate}
+          onSelectDate={openDay}
+        />
+      );
+    }
     if (activeView === "day") {
       return (
         <DayView
           appointments={appointments}
           selectedId={selectedId}
           onSelect={setSelectedId}
+          calendarDate={calendarDate}
         />
       );
     }
@@ -3482,6 +3689,8 @@ function Workbench({
         selectedId={selectedId}
         onSelect={openAppointmentDetail}
         search={search}
+        calendarDate={calendarDate}
+        onSelectDate={openDay}
       />
     );
   };
@@ -3578,16 +3787,29 @@ function Workbench({
       <main className="app-main">
         <div className="command-bar">
           <div className="date-command">
-            <button className="icon-button" title="이전 주">
+            <button
+              className="icon-button"
+              title={activeView === "month" ? "이전 달" : activeView === "day" ? "이전 날짜" : "이전 주"}
+              onClick={() => moveCalendar(-1)}
+            >
               <Icon name="previous" />
             </button>
-            <strong>2026년 7월 27일 ~ 8월 1일 (31주)</strong>
-            <button className="icon-button" title="다음 주">
+            <strong aria-live="polite">{periodLabel(activeView, calendarDate)}</strong>
+            <button
+              className="icon-button"
+              title={activeView === "month" ? "다음 달" : activeView === "day" ? "다음 날짜" : "다음 주"}
+              onClick={() => moveCalendar(1)}
+            >
               <Icon name="next" />
             </button>
             <button
               className="secondary-button"
-              onClick={() => setActiveView("today")}
+              onClick={() => {
+                setCalendarDate(REFERENCE_TODAY);
+                if (!["month", "week", "day"].includes(activeView)) {
+                  setActiveView("today");
+                }
+              }}
             >
               <Icon name="today" />
               오늘

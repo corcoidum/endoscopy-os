@@ -11,6 +11,8 @@ When implementing from a selected generated mock, treat that image as the source
 - Visual direction: Option 2, **Queue-First Workbench**.
 - Show sex immediately beside every displayed age: for example `검진 47 · 여` and `일반 만 52 · 남`.
 - The clinic currently operates with one director and one endoscopy room. Do not expose doctor, room, or resource selectors, filters, labels, or distinctions in the prototype.
+- For combined upper-and-colon appointments, label the operational assignee as `세트60` or `세트90` rather than a person's name. `세트60` occupies 60 minutes and `세트90` occupies 90 minutes; upper-only remains 30 minutes and colon-only remains 60 minutes.
+- Month, week, and day views must navigate by their own period. The day view keeps patients in time order and shows general-screening and ultrasound types in both the daily summary and each patient row.
 - Treat the timetable as one shared endoscopy schedule.
 - Use synthetic patient data only.
 - In the weekly workbench, keep only the left `오늘 우선 처리` queue and the full-height weekly schedule; do not restore the bottom selected-patient inspector.

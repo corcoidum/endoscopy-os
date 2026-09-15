@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 ProcedureCode = Literal["UPPER", "COLON"]
+ProcedureSet = Literal["SET_60", "SET_90"]
 SedationMode = Literal["SEDATED", "NON_SEDATED"]
 CareType = Literal["GENERAL", "SCREENING"]
 BookingBucket = Literal["STANDARD_MORNING", "AFTERNOON_EXCEPTION"]
@@ -25,12 +26,15 @@ class AppointmentCreateRequest(BaseModel):
     care_type: CareType
     booking_bucket: BookingBucket = "STANDARD_MORNING"
     procedures: list[AppointmentProcedureInput] = Field(min_length=1, max_length=2)
+    procedure_set: ProcedureSet | None = None
 
     @model_validator(mode="after")
     def procedures_must_be_unique(self) -> AppointmentCreateRequest:
         codes = [item.procedure_code for item in self.procedures]
         if len(codes) != len(set(codes)):
             raise ValueError("같은 검사를 중복 선택할 수 없습니다.")
+        if self.procedure_set is not None and set(codes) != {"UPPER", "COLON"}:
+            raise ValueError("세트60·세트90은 위·대장 동시검사에서만 선택할 수 있습니다.")
         return self
 
 
@@ -53,6 +57,7 @@ class AppointmentResponse(BaseModel):
     start_time: time
     end_time: time
     duration_minutes: int
+    procedure_set: ProcedureSet | None
     care_type: CareType
     booking_bucket: BookingBucket
     workflow_state: Literal["BOOKED", "CANCELLED"]
@@ -77,5 +82,6 @@ class ScheduleAvailabilityResponse(BaseModel):
     service_date: date
     booking_bucket: BookingBucket
     duration_minutes: int
+    procedure_set: ProcedureSet | None
     schedule_policy_version: str
     slots: list[AvailableSlotResponse]

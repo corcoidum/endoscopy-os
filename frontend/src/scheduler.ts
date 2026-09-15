@@ -3,6 +3,7 @@ import type {
   CareCategory,
   DepositPaymentMethod,
   ProcedureKind,
+  ProcedureSet,
   Sex,
 } from "./data";
 
@@ -16,6 +17,7 @@ export interface BookingDraft {
   sex: Sex;
   careCategory: CareCategory;
   procedure: ProcedureKind;
+  procedureSet: ProcedureSet;
   upperSedation: boolean;
   colonSedation: boolean;
   date: string;
@@ -39,7 +41,7 @@ export interface BookingDraft {
 
 export interface ValidationResult {
   valid: boolean;
-  duration: 30 | 60;
+  duration: 30 | 60 | 90;
   end: string;
   errors: string[];
   alternatives: string[];
@@ -59,8 +61,13 @@ export function getDateBlocks(date: string) {
   return DATE_BLOCKS[date] ?? [];
 }
 
-export function procedureDuration(procedure: ProcedureKind): 30 | 60 {
-  return procedure === "위" ? 30 : 60;
+export function procedureDuration(
+  procedure: ProcedureKind,
+  procedureSet: ProcedureSet = "세트60",
+): 30 | 60 | 90 {
+  if (procedure === "위") return 30;
+  if (procedure === "대장") return 60;
+  return procedureSet === "세트90" ? 90 : 60;
 }
 
 export function toMinutes(time: string): number {
@@ -103,7 +110,7 @@ export function validateBooking(
   excludeAppointmentId?: string,
   calculateAlternatives = true,
 ): ValidationResult {
-  const duration = procedureDuration(draft.procedure);
+  const duration = procedureDuration(draft.procedure, draft.procedureSet);
   const start = toMinutes(draft.start);
   const end = start + duration;
   const errors: string[] = [];

@@ -57,6 +57,10 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "scheduled_start_at < scheduled_end_at",
             name="valid_interval",
         ),
+        CheckConstraint(
+            "procedure_set IS NULL OR procedure_set IN ('SET_60','SET_90')",
+            name="procedure_set",
+        ),
         Index(
             "ix_appointments_service_date_state",
             "service_date",
@@ -98,6 +102,7 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     schedule_policy_version: Mapped[str] = mapped_column(
         String(80), nullable=False
     )
+    procedure_set: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_by_user_id: Mapped[UUID] = mapped_column(
         ForeignKey(f"{IAM_SCHEMA}.users.id", ondelete="RESTRICT"),
         nullable=False,

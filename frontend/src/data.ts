@@ -1,6 +1,7 @@
 export type Sex = "남" | "여";
 export type CareCategory = "검진" | "일반";
 export type ProcedureKind = "위" | "대장" | "위·대장";
+export type ProcedureSet = "세트60" | "세트90";
 export type CheckState = "완료" | "대기" | "불필요";
 export type DepositPaymentMethod = "현금" | "카드";
 export type AppointmentStatus =
@@ -15,13 +16,14 @@ export interface Appointment {
   id: string;
   date: string;
   start: string;
-  duration: 30 | 60;
+  duration: 30 | 60 | 90;
   name: string;
   chartNumber: string;
   dateOfBirth: string;
   sex: Sex;
   careCategory: CareCategory;
   procedure: ProcedureKind;
+  procedureSet?: ProcedureSet;
   upperSedation?: boolean;
   colonSedation?: boolean;
   deposit: CheckState;
@@ -107,6 +109,7 @@ export const initialAppointments: Appointment[] = [
     careCategory: "검진",
     procedure: "위",
     upperSedation: true,
+    additionalExaminations: ["복부초음파"],
     deposit: "완료",
     medication: "불필요",
     d1: "완료",
@@ -148,6 +151,7 @@ export const initialAppointments: Appointment[] = [
     careCategory: "검진",
     procedure: "위",
     upperSedation: true,
+    additionalExaminations: ["갑상선초음파"],
     deposit: "완료",
     medication: "불필요",
     d1: "대기",
@@ -248,6 +252,7 @@ export const initialAppointments: Appointment[] = [
     careCategory: "일반",
     procedure: "대장",
     colonSedation: false,
+    additionalExaminations: ["복부초음파"],
     deposit: "완료",
     medication: "완료",
     d1: "완료",
@@ -268,6 +273,7 @@ export const initialAppointments: Appointment[] = [
     careCategory: "검진",
     procedure: "위",
     upperSedation: true,
+    additionalExaminations: ["심장초음파"],
     deposit: "완료",
     medication: "불필요",
     d1: "완료",
@@ -288,6 +294,7 @@ export const initialAppointments: Appointment[] = [
     procedure: "위·대장",
     upperSedation: false,
     colonSedation: false,
+    additionalExaminations: ["경동맥초음파"],
     deposit: "완료",
     medication: "완료",
     d1: "완료",
@@ -368,6 +375,7 @@ export const initialAppointments: Appointment[] = [
     careCategory: "검진",
     procedure: "위",
     upperSedation: true,
+    additionalExaminations: ["복부초음파"],
     deposit: "완료",
     medication: "불필요",
     d1: "완료",
@@ -387,6 +395,7 @@ export const initialAppointments: Appointment[] = [
     careCategory: "검진",
     procedure: "위",
     upperSedation: true,
+    additionalExaminations: ["갑상선초음파"],
     deposit: "완료",
     medication: "불필요",
     d1: "완료",
@@ -406,6 +415,7 @@ export const initialAppointments: Appointment[] = [
     careCategory: "일반",
     procedure: "대장",
     colonSedation: false,
+    additionalExaminations: ["복부초음파"],
     deposit: "완료",
     medication: "완료",
     d1: "완료",
@@ -426,6 +436,7 @@ export const initialAppointments: Appointment[] = [
     careCategory: "검진",
     procedure: "위",
     upperSedation: true,
+    additionalExaminations: ["심장초음파"],
     deposit: "완료",
     medication: "완료",
     d1: "완료",
@@ -446,6 +457,7 @@ export const initialAppointments: Appointment[] = [
     procedure: "위·대장",
     upperSedation: true,
     colonSedation: false,
+    additionalExaminations: ["경동맥초음파"],
     deposit: "완료",
     medication: "완료",
     d1: "완료",

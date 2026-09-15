@@ -19,6 +19,7 @@ from app.schemas.appointment import (
     AvailableSlotResponse,
     BookingBucket,
     ProcedureCode,
+    ProcedureSet,
     ScheduleAvailabilityResponse,
 )
 from app.services import appointments as appointment_service
@@ -34,6 +35,7 @@ def get_availability(
     service_date: date,
     procedures: list[ProcedureCode] = Query(min_length=1, max_length=2),
     booking_bucket: BookingBucket = "STANDARD_MORNING",
+    procedure_set: ProcedureSet | None = None,
     _: Principal = Depends(appointment_reader),
     db: Session = Depends(get_db),
 ) -> ScheduleAvailabilityResponse:
@@ -48,12 +50,14 @@ def get_availability(
         db,
         service_date=service_date,
         procedure_codes=procedure_codes,
+        procedure_set=procedure_set,
         booking_bucket=booking_bucket,
     )
     return ScheduleAvailabilityResponse(
         service_date=service_date,
         booking_bucket=booking_bucket,
         duration_minutes=duration,
+        procedure_set=(procedure_set or "SET_60") if procedure_codes == {"UPPER", "COLON"} else None,
         schedule_policy_version=appointment_service.BASE_POLICY_VERSION,
         slots=[
             AvailableSlotResponse(start_time=start, end_time=end)
@@ -124,6 +128,7 @@ def create_appointment(
             care_type=payload.care_type,
             booking_bucket=payload.booking_bucket,
             procedures=payload.procedures,
+            procedure_set=payload.procedure_set,
             actor_user_id=principal.user.id,
         )
         db.commit()

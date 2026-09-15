@@ -15,6 +15,15 @@ def test_procedure_duration_uses_longest_selected_procedure() -> None:
     assert procedure_duration({"UPPER"}) == 30
     assert procedure_duration({"COLON"}) == 60
     assert procedure_duration({"UPPER", "COLON"}) == 60
+    assert procedure_duration({"UPPER", "COLON"}, "SET_60") == 60
+    assert procedure_duration({"UPPER", "COLON"}, "SET_90") == 90
+
+
+def test_procedure_set_is_rejected_for_single_procedure() -> None:
+    with pytest.raises(ApiError) as captured:
+        procedure_duration({"COLON"}, "SET_90")
+
+    assert captured.value.code == "PROCEDURE_SET_INVALID"
 
 
 def test_sunday_is_closed() -> None:

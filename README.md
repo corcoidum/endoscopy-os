@@ -54,12 +54,31 @@ Frontend까지 실제 API에 연결되어 있고, 예약 기능은 Backend 저�
 - PostgreSQL 날짜별 Advisory Transaction Lock
 - 예약 생성 History와 Schedule Policy Version 보존
 - 가능 Slot, 예약 등록·기간조회·상세조회 API
+- 3A 이후 추가: 위·대장 동시검사 `세트60`(60분)·`세트90`(90분) 선택
+- Prototype 화면: 월간·주간·일간 기간별 이동, 주간·월간·연간 통계(수면/비수면 분리)
 
-### 아직 구현하지 않은 범위
+> 주간 일정표·예약 Form·통계는 아직 합성 Fixture 데이터로 동작합니다. 실제
+> 예약 API 연결은 Sprint 3B 범위입니다.
 
-- Sprint 3B: 날짜별 Override·14:00 승인 예외·예약 변경과 Frontend 실제 API 전환
-- Sprint 4~6: 확인·약제·예약금·검사·조직검사·Follow-up
-- Sprint 7: Audit Log, Backup·Restore, Windows 운영 Script
+## 전체 로드맵
+
+| 단계 | 범위 | 상태 | 문서 |
+|---|---|---|---|
+| Phase 1 | 요구사항 기준선·PRD·Decision Log | 완료 | [01](./docs/01-requirements-baseline.md), [02](./docs/02-product-requirements-document.md) |
+| Phase 2 | 아키텍처·Database·Scheduling Engine 설계 | 완료 | [03](./docs/03-system-architecture-database-scheduling.md) |
+| Phase 3 | UI/UX Prototype 명세 | 완료 | [04](./docs/04-ui-ux-prototype-specification.md) |
+| Sprint 1 | 인증·Session·CSRF·RBAC, PostgreSQL·Alembic, Caddy 내부 HTTPS, Docker Compose | 완료 | [05](./docs/05-sprint-1-implementation-report.md) |
+| Sprint 2 | Patient 등록·검색·정정 History, 차트번호 중복, 나이 계산, 연락처 암호화 | 완료 | [06](./docs/06-sprint-2-entry-gate.md), [07](./docs/07-sprint-2-implementation-report.md) |
+| Sprint 3A | 예약 Backend Core(점유시간·운영시간·Capacity·충돌 차단·API), 세트60/90 | 완료 | [08](./docs/08-sprint-3a-implementation-report.md) |
+| **Sprint 3B** | 날짜별 Override, 14:00 오후 예외 승인, 예약 변경·취소·No-show·Revision, 일정·예약 Form 실제 API 전환, PostgreSQL 동시성 통합 Test | **다음** | — |
+| Sprint 4 | 1차·2차 이중확인, PACS 수기확인, 장정결·약제·추가검사 | 예정 | — |
+| Sprint 5 | 예약금(정책 Version·거래원장), 취소, No-show, D-1 연락 | 예정 | — |
+| Sprint 6 | 실제 검사 완료, Biopsy·CLO 검사대장, 병리 Follow-up·Overdue, Risk Dashboard, 통계 | 예정 | [09 병리 PDF Import 설계안](./docs/09-pathology-pdf-import-security-design.md) |
+| Sprint 7 | 영구 Audit Log, Backup·Restore·월간 Restore Test, Windows 운영 Script | 예정 | — |
+| 운영 Gate | 실제 서버 PC 반복 시험, 고정 IP·Hostname, 원내 PC HTTPS, 재부팅 자동기동, 디스크 암호화 | 예정 | [06](./docs/06-sprint-2-entry-gate.md) |
+
+실제 환자정보는 Sprint 7과 운영 Gate가 모두 끝난 뒤에만 입력합니다. Design QA
+기록은 [docs/qa](./docs/qa/)에 날짜·주제별로 보관합니다.
 
 ## 오랜만에 다시 시작할 때
 
@@ -407,11 +426,11 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
 - 실제 접수실 Main PC의 재부팅 후 자동기동과 다른 원내 PC 접속시험은 아직
   수행하지 않았습니다.
 - 개발 PC의 Disk 암호화가 꺼져 있으므로 실제 환자정보를 입력하면 안 됩니다.
-- 로그인 실패 제한은 계정 단위입니다. Source IP별 영구 실패 Bucket은 아직
-  구현하지 않았습니다.
+- 로그인 실패는 계정 단위 잠금과 Client IP별 제한을 함께 적용합니다. IP별
+  실패 기록은 Backend Process Memory에만 있어 재시작 시 초기화됩니다.
 - 사용자·역할 변경의 영구 Audit Log는 Sprint 7 범위입니다.
-- Patient 기본정보 변경 History는 구현했지만 예약 History는 Sprint 3에서
-  Patient ID에 연결합니다.
+- 예약 생성 History는 Patient ID에 연결되어 저장되지만, 변경·취소 Revision은
+  Sprint 3B 범위입니다.
 - Docker Desktop 자동기동, 내부 DNS, Windows Firewall, Caddy Root 인증서
   배포는 실제 서버 PC에서 승인·시험해야 합니다.
 
@@ -420,3 +439,5 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
 - [Sprint 1 구현 보고서](./docs/05-sprint-1-implementation-report.md)
 - [Sprint 2 진입 Gate](./docs/06-sprint-2-entry-gate.md)
 - [Sprint 2 구현 보고서](./docs/07-sprint-2-implementation-report.md)
+- [Sprint 3A 구현 보고서](./docs/08-sprint-3a-implementation-report.md)
+- [병리 PDF Import 보안 설계안 (Sprint 6 참고)](./docs/09-pathology-pdf-import-security-design.md)

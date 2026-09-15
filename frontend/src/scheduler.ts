@@ -14,7 +14,7 @@ export interface BookingDraft {
   name: string;
   chartNumber: string;
   dateOfBirth: string;
-  sex: Sex;
+  sex: Sex | "";
   careCategory: CareCategory;
   procedure: ProcedureKind;
   procedureSet: ProcedureSet;
@@ -119,8 +119,13 @@ export function validateBooking(
       appointment.date === draft.date && appointment.id !== excludeAppointmentId,
   );
 
-  if (!draft.name.trim() || !draft.chartNumber.trim() || !draft.dateOfBirth) {
-    errors.push("환자 이름·차트번호·생년월일을 모두 확인해 주세요.");
+  if (
+    !draft.name.trim() ||
+    !draft.chartNumber.trim() ||
+    !draft.dateOfBirth ||
+    !draft.sex
+  ) {
+    errors.push("환자 이름·차트번호·생년월일·성별을 모두 확인해 주세요.");
   }
 
   const medicationName = draft.medicationDiscontinuationName.trim();

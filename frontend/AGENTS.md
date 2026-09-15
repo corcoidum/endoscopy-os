@@ -13,8 +13,10 @@ When implementing from a selected generated mock, treat that image as the source
 - The clinic currently operates with one director and one endoscopy room. Do not expose doctor, room, or resource selectors, filters, labels, or distinctions in the prototype.
 - For combined upper-and-colon appointments, label the operational assignee as `세트60` or `세트90` rather than a person's name. `세트60` occupies 60 minutes and `세트90` occupies 90 minutes; upper-only remains 30 minutes and colon-only remains 60 minutes.
 - Month, week, and day views must navigate by their own period. The day view keeps patients in time order and shows general-screening and ultrasound types in both the daily summary and each patient row.
+- Statistics must switch among week, month, and year periods and report upper/colon totals with separate sedation and non-sedation counts. Statistics shown from prototype appointments are reservation-based, not proof of actual procedure completion.
 - Treat the timetable as one shared endoscopy schedule.
 - Use synthetic patient data only.
+- A new booking must start with blank patient identity fields and no selected sex. Do not preload a synthetic patient or a paid deposit; keep existing values only when editing an appointment.
 - In the weekly workbench, keep only the left `오늘 우선 처리` queue and the full-height weekly schedule; do not restore the bottom selected-patient inspector.
 - Open appointment details in a centered dialog immediately when a weekly appointment or priority-queue patient is selected.
 - Structure appointment detail around operational decisions first (unresolved checks, exam essentials, preparation/medication, payment), with history and results as secondary views.
@@ -24,3 +26,5 @@ When implementing from a selected generated mock, treat that image as the source
 - A completed secondary identity verification must be correctable through a two-step flow that requires a reason and records correction time; never offer a one-click silent undo.
 
 Build app UI in `src/`. The app is deployed only inside the clinic network through Docker Compose and Caddy; do not add external hosting (Sites/Workers) artifacts. `npm run build` must leave `dist/client/index.html`, which `frontend/Dockerfile` copies into the Caddy static volume.
+
+Record each Design QA pass as a new file `docs/qa/YYYY-MM-DD-<topic>.md`. Do not create or overwrite a root-level `design-qa.md`, and never include real patient data in QA captures or notes.

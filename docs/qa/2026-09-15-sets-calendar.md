@@ -1,5 +1,7 @@
 # Design QA — 검사 세트와 달력 탐색 개선
 
+> 참고: 이 문서가 가리키는 `output/playwright/*.png` 캡처는 `.gitignore` 대상이라 레포에 포함되어 있지 않습니다.
+
 ## 검증 기준
 
 - Source of truth

@@ -33,6 +33,16 @@
 - Alembic PostgreSQL offline SQL 생성 검증
 - 기존 Starlette `TestClient` deprecation warning 1건은 유지
 
+## 3A 이후 추가 반영 (2026-09-15)
+
+- 위·대장 동시검사의 점유시간을 `세트60`(60분)·`세트90`(90분)으로 선택
+  (`procedure_set`, Migration `20260915_0004`). 위 단독 30분·대장 단독 60분은 유지
+- 가능 Slot 조회와 예약 생성 API가 `procedure_set`을 받아 점유시간을 계산
+- 예약 시각을 DB Session Timezone과 무관하게 서울 기준으로 해석
+- Prototype 화면(합성 데이터): 월·주·일 기간별 이동, 주간·월간·연간 통계,
+  빈 상태로 시작하는 신규 예약 Form
+- 이 시점 Backend 자동화 Test: 60개 통과
+
 ## 의도적으로 남긴 범위
 
 - 14:00 오후 예외 승인과 등록자·확인자 분리

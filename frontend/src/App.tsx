@@ -46,6 +46,8 @@ type ViewId =
   | "statistics"
   | "admin";
 
+type StatisticsPeriod = "week" | "month" | "year";
+
 type DrawerState =
   | { kind: "appointment"; id: string }
   | { kind: "pathology"; id: string }
@@ -178,6 +180,12 @@ function addCalendarMonths(value: string, amount: number): string {
   return toIsoDate(date);
 }
 
+function addCalendarYears(value: string, amount: number): string {
+  const date = parseIsoDate(value);
+  date.setFullYear(date.getFullYear() + amount);
+  return toIsoDate(date);
+}
+
 function startOfCalendarWeek(value: string): string {
   const date = parseIsoDate(value);
   const mondayOffset = (date.getDay() + 6) % 7;
@@ -219,6 +227,31 @@ function periodLabel(view: ViewId, value: string): string {
       7,
   );
   return `${mondayDate.getFullYear()}년 ${mondayDate.getMonth() + 1}월 ${mondayDate.getDate()}일 ~ ${saturdayDate.getMonth() + 1}월 ${saturdayDate.getDate()}일 (${weekNumber}주)`;
+}
+
+function statisticsPeriodLabel(period: StatisticsPeriod, value: string): string {
+  const date = parseIsoDate(value);
+  if (period === "month") {
+    return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+  }
+  if (period === "year") return `${date.getFullYear()}년`;
+  return periodLabel("week", value);
+}
+
+function appointmentsForStatisticsPeriod(
+  appointments: Appointment[],
+  period: StatisticsPeriod,
+  value: string,
+): Appointment[] {
+  if (period === "year") {
+    return appointments.filter((item) => item.date.startsWith(`${value.slice(0, 4)}-`));
+  }
+  if (period === "month") {
+    return appointments.filter((item) => item.date.startsWith(value.slice(0, 7)));
+  }
+  const start = startOfCalendarWeek(value);
+  const end = addCalendarDays(start, 5);
+  return appointments.filter((item) => item.date >= start && item.date <= end);
 }
 
 function hasAnyPermission(user: AuthUser, permissions: string[]) {
@@ -1713,23 +1746,72 @@ function PatientHistoryView({ appointments }: { appointments: Appointment[] }) {
   );
 }
 
-function StatisticsView({ appointments }: { appointments: Appointment[] }) {
-  const standard = appointments.filter((item) => !item.afternoonException);
-  const exception = appointments.filter((item) => item.afternoonException);
+function StatisticsView({
+  appointments,
+  period,
+  calendarDate,
+  onPeriodChange,
+}: {
+  appointments: Appointment[];
+  period: StatisticsPeriod;
+  calendarDate: string;
+  onPeriodChange: (period: StatisticsPeriod) => void;
+}) {
+  const scopedAppointments = appointmentsForStatisticsPeriod(
+    appointments,
+    period,
+    calendarDate,
+  );
+  const standard = scopedAppointments.filter((item) => !item.afternoonException);
+  const exception = scopedAppointments.filter((item) => item.afternoonException);
   const count = (items: Appointment[], procedure: "upper" | "colon") =>
     items.filter((item) =>
       procedure === "upper"
         ? item.procedure === "위" || item.procedure === "위·대장"
         : item.procedure === "대장" || item.procedure === "위·대장",
     ).length;
+  const sedationCounts = (procedure: "upper" | "colon") => {
+    const matching = scopedAppointments.filter((item) =>
+      procedure === "upper"
+        ? item.procedure === "위" || item.procedure === "위·대장"
+        : item.procedure === "대장" || item.procedure === "위·대장",
+    );
+    const sedationKey = procedure === "upper" ? "upperSedation" : "colonSedation";
+    return {
+      total: matching.length,
+      sedated: matching.filter((item) => item[sedationKey] === true).length,
+      nonSedated: matching.filter((item) => item[sedationKey] === false).length,
+    };
+  };
+  const upper = sedationCounts("upper");
+  const colon = sedationCounts("colon");
+  const periodName = period === "week" ? "주간" : period === "month" ? "월간" : "연간";
   return (
     <section className="view-surface">
       <div className="view-title">
         <div>
           <span className="eyebrow">환자 수와 검사 건수 분리</span>
-          <h1>주간 운영 통계</h1>
-          <p>일반 오전과 오후 예외 Capacity Bucket을 섞지 않습니다.</p>
+          <h1>{periodName} 운영 통계</h1>
+          <p>일반 오전과 오후 예외를 분리하고, 검사별 수면 여부를 집계합니다.</p>
         </div>
+        <div className="statistics-period-tabs" aria-label="통계 조회 기간">
+          {(["week", "month", "year"] as const).map((item) => (
+            <button
+              type="button"
+              className={period === item ? "is-active" : ""}
+              aria-pressed={period === item}
+              onClick={() => onPeriodChange(item)}
+              key={item}
+            >
+              {item === "week" ? "주간" : item === "month" ? "월간" : "연간"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="statistics-scope-note">
+        <Icon name="statistics" />
+        <span>{statisticsPeriodLabel(period, calendarDate)}</span>
+        <small>Prototype 예약 데이터 기준 · 위·대장 동시 예약은 검사별 1건씩 집계</small>
       </div>
       <div className="statistics-grid">
         <article className="content-card">
@@ -1769,23 +1851,58 @@ function StatisticsView({ appointments }: { appointments: Appointment[] }) {
           </dl>
         </article>
         <article className="content-card">
-          <span className="eyebrow">TOTAL ACTUAL</span>
-          <h2>전체 실제 검사 건수</h2>
+          <span className="eyebrow">PERIOD TOTAL</span>
+          <h2>기간 내 전체 예약</h2>
           <dl className="stat-definition">
             <div>
               <dt>환자</dt>
-              <dd>{appointments.length}</dd>
+              <dd>{scopedAppointments.length}</dd>
             </div>
             <div>
               <dt>위내시경</dt>
-              <dd>{count(appointments, "upper")}</dd>
+              <dd>{count(scopedAppointments, "upper")}</dd>
             </div>
             <div>
               <dt>대장내시경</dt>
-              <dd>{count(appointments, "colon")}</dd>
+              <dd>{count(scopedAppointments, "colon")}</dd>
             </div>
           </dl>
         </article>
+      </div>
+      <div className="statistics-section-heading">
+        <div>
+          <span className="eyebrow">SEDATION BREAKDOWN</span>
+          <h2>검사별 수면·비수면</h2>
+        </div>
+        <p>예약 시 선택한 위·대장 각각의 수면 여부를 기준으로 계산합니다.</p>
+      </div>
+      <div className="procedure-statistics-grid">
+        {([
+          { label: "위내시경", stats: upper, tone: "upper" },
+          { label: "대장내시경", stats: colon, tone: "colon" },
+        ] as const).map(({ label, stats, tone }) => (
+          <article className={`procedure-stat-card procedure-stat-card--${tone}`} key={label}>
+            <div className="procedure-stat-card__header">
+              <div>
+                <span>{label}</span>
+                <strong>{stats.total}건</strong>
+              </div>
+              <em>{stats.total === 0 ? "집계 없음" : "예약 기준"}</em>
+            </div>
+            <dl className="procedure-stat-card__breakdown">
+              <div>
+                <dt>수면</dt>
+                <dd>{stats.sedated}</dd>
+                <span>{stats.total ? `${Math.round((stats.sedated / stats.total) * 100)}%` : "0%"}</span>
+              </div>
+              <div>
+                <dt>비수면</dt>
+                <dd>{stats.nonSedated}</dd>
+                <span>{stats.total ? `${Math.round((stats.nonSedated / stats.total) * 100)}%` : "0%"}</span>
+              </div>
+            </dl>
+          </article>
+        ))}
       </div>
     </section>
   );
@@ -1899,10 +2016,10 @@ function draftFromAppointment(appointment?: Appointment): BookingDraft {
   }
 
   return {
-    name: "서가윤",
-    chartNumber: "T-260801-101",
-    dateOfBirth: "1982-09-14",
-    sex: "여",
+    name: "",
+    chartNumber: "",
+    dateOfBirth: "",
+    sex: "",
     careCategory: "검진",
     procedure: "위·대장",
     procedureSet: "세트60",
@@ -1918,9 +2035,9 @@ function draftFromAppointment(appointment?: Appointment): BookingDraft {
     medicationDiscontinuationDays: "",
     medicationDoctorConfirmed: false,
     additionalExaminations: [],
-    depositPaid: true,
-    depositPaymentMethod: "현금",
-    depositAmount: 20000,
+    depositPaid: false,
+    depositPaymentMethod: "미확인",
+    depositAmount: undefined,
     additionalPrepayment: false,
     exceptionReason: "",
     exceptionConfirmedBy: "",
@@ -1950,7 +2067,15 @@ function BookingWizard({
     () => validateBooking(draft, appointments, appointment?.id),
     [draft, appointments, appointment?.id],
   );
-  const age = calculateAge(draft.dateOfBirth, draft.date, draft.careCategory);
+  const identityComplete = Boolean(
+    draft.name.trim() &&
+      draft.chartNumber.trim() &&
+      draft.dateOfBirth &&
+      draft.sex,
+  );
+  const age = draft.dateOfBirth
+    ? calculateAge(draft.dateOfBirth, draft.date, draft.careCategory)
+    : null;
 
   const patchDraft = <Key extends keyof BookingDraft>(
     key: Key,
@@ -1996,6 +2121,8 @@ function BookingWizard({
               <input
                 value={draft.name}
                 onChange={(event) => patchDraft("name", event.target.value)}
+                placeholder="이름 입력"
+                required
               />
             </label>
             <label className="field">
@@ -2003,6 +2130,8 @@ function BookingWizard({
               <input
                 value={draft.chartNumber}
                 onChange={(event) => patchDraft("chartNumber", event.target.value)}
+                placeholder="차트번호 입력"
+                required
               />
             </label>
             <label className="field">
@@ -2011,6 +2140,7 @@ function BookingWizard({
                 type="date"
                 value={draft.dateOfBirth}
                 onChange={(event) => patchDraft("dateOfBirth", event.target.value)}
+                required
               />
             </label>
             <fieldset className="field">
@@ -2029,22 +2159,32 @@ function BookingWizard({
               </div>
             </fieldset>
           </div>
-          <div className="identity-confirmation">
-            <Icon name="shield" />
-            <div>
-              <strong>
-                {draft.name} · {draft.chartNumber}
-              </strong>
-              <span>
-                {draft.dateOfBirth} ·{" "}
-                {draft.careCategory === "검진" ? age : `만 ${age}`} · {draft.sex}
+          {identityComplete ? (
+            <div className="identity-confirmation">
+              <Icon name="shield" />
+              <div>
+                <strong>
+                  {draft.name} · {draft.chartNumber}
+                </strong>
+                <span>
+                  {draft.dateOfBirth} ·{" "}
+                  {draft.careCategory === "검진" ? age : `만 ${age}`} · {draft.sex}
+                </span>
+              </div>
+              <span className="state-label state-label--success">
+                <Icon name="check" />
+                1차 확인
               </span>
             </div>
-            <span className="state-label state-label--success">
-              <Icon name="check" />
-              1차 확인
-            </span>
-          </div>
+          ) : (
+            <div className="identity-confirmation identity-confirmation--empty">
+              <Icon name="info" />
+              <div>
+                <strong>신규 환자 정보를 입력해 주세요.</strong>
+                <span>네 항목을 모두 입력하면 다음 단계가 열립니다.</span>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -2310,7 +2450,11 @@ function BookingWizard({
           <div className="age-policy-card">
             <span>{draft.careCategory} 나이 표시</span>
             <strong>
-              {draft.careCategory === "검진" ? age : `만 ${age}`} · {draft.sex}
+              {age === null
+                ? "생년월일 입력 필요"
+                : draft.careCategory === "검진"
+                  ? age
+                  : `만 ${age}`} · {draft.sex || "성별 선택 필요"}
             </strong>
             <small>
               나이는 저장하지 않고 생년월일과 검사 예정일로 매번 계산합니다.
@@ -2628,7 +2772,11 @@ function BookingWizard({
               {draft.name} · {draft.chartNumber}
             </strong>
             <small>
-              {draft.careCategory === "검진" ? age : `만 ${age}`} · {draft.sex}
+              {age === null
+                ? "생년월일 입력 필요"
+                : draft.careCategory === "검진"
+                  ? age
+                  : `만 ${age}`} · {draft.sex || "성별 선택 필요"}
             </small>
           </div>
           <div>
@@ -2702,7 +2850,9 @@ function BookingWizard({
               {appointment ? `${appointment.name} 예약 변경` : "예약 등록"}
             </h2>
           </div>
-          <span className="data-chip">합성 데이터</span>
+          <span className="data-chip">
+            {appointment ? "합성 데이터" : "신규 입력"}
+          </span>
           <button className="icon-button" onClick={onClose} aria-label="닫기">
             <Icon name="close" />
           </button>
@@ -2717,6 +2867,7 @@ function BookingWizard({
                   className={`${step === stepNumber ? "is-active" : ""} ${
                     stepNumber < step ? "is-complete" : ""
                   }`}
+                  disabled={!identityComplete && stepNumber > 1}
                   onClick={() => setStep(stepNumber)}
                   key={label}
                 >
@@ -2817,6 +2968,7 @@ function BookingWizard({
             {step < 8 ? (
               <button
                 className="primary-button"
+                disabled={step === 1 && !identityComplete}
                 onClick={() => setStep((current) => Math.min(8, current + 1))}
               >
                 다음
@@ -3300,6 +3452,8 @@ function Workbench({
 }) {
   const [activeView, setActiveView] = useState<ViewId>("week");
   const [calendarDate, setCalendarDate] = useState(REFERENCE_TODAY);
+  const [statisticsPeriod, setStatisticsPeriod] =
+    useState<StatisticsPeriod>("week");
   const [appointments, setAppointments] =
     useState<Appointment[]>(initialAppointments);
   const [pathologyCases, setPathologyCases] =
@@ -3358,6 +3512,16 @@ function Workbench({
   };
 
   const moveCalendar = (direction: -1 | 1) => {
+    if (activeView === "statistics") {
+      setCalendarDate((current) =>
+        statisticsPeriod === "year"
+          ? addCalendarYears(current, direction)
+          : statisticsPeriod === "month"
+            ? addCalendarMonths(current, direction)
+            : addCalendarDays(current, direction * 7),
+      );
+      return;
+    }
     if (activeView === "month") {
       setCalendarDate((current) => addCalendarMonths(current, direction));
       return;
@@ -3412,6 +3576,11 @@ function Workbench({
   };
 
   const saveBooking = (draft: BookingDraft, validation: ValidationResult) => {
+    const patientSex = draft.sex;
+    if (!patientSex) {
+      notify("환자 성별을 선택해 주세요.");
+      return;
+    }
     if (draft.depositPaid && (!draft.depositAmount || draft.depositPaymentMethod === "미확인")) {
       notify("예약금 수납 완료 시 금액과 카드·현금 수납 방법을 선택해 주세요.");
       return;
@@ -3434,7 +3603,7 @@ function Workbench({
         editingAppointment.name !== draft.name ||
         editingAppointment.chartNumber !== draft.chartNumber ||
         editingAppointment.dateOfBirth !== draft.dateOfBirth ||
-        editingAppointment.sex !== draft.sex ||
+        editingAppointment.sex !== patientSex ||
         editingAppointment.upperSedation !== draft.upperSedation ||
         editingAppointment.colonSedation !== draft.colonSedation;
       setAppointments((current) =>
@@ -3445,7 +3614,7 @@ function Workbench({
                 name: draft.name,
                 chartNumber: draft.chartNumber,
                 dateOfBirth: draft.dateOfBirth,
-                sex: draft.sex,
+                sex: patientSex,
                 careCategory: draft.careCategory,
                 procedure: draft.procedure,
                 procedureSet:
@@ -3505,7 +3674,7 @@ function Workbench({
         name: draft.name,
         chartNumber: draft.chartNumber,
         dateOfBirth: draft.dateOfBirth,
-        sex: draft.sex,
+        sex: patientSex,
         careCategory: draft.careCategory,
         procedure: draft.procedure,
         procedureSet:
@@ -3679,7 +3848,14 @@ function Workbench({
       );
     }
     if (activeView === "statistics") {
-      return <StatisticsView appointments={appointments} />;
+      return (
+        <StatisticsView
+          appointments={appointments}
+          period={statisticsPeriod}
+          calendarDate={calendarDate}
+          onPeriodChange={setStatisticsPeriod}
+        />
+      );
     }
     if (activeView === "admin") return <AdminView />;
 
@@ -3789,15 +3965,37 @@ function Workbench({
           <div className="date-command">
             <button
               className="icon-button"
-              title={activeView === "month" ? "이전 달" : activeView === "day" ? "이전 날짜" : "이전 주"}
+              title={
+                activeView === "statistics" && statisticsPeriod === "year"
+                  ? "이전 연도"
+                  : (activeView === "month" ||
+                        (activeView === "statistics" && statisticsPeriod === "month"))
+                    ? "이전 달"
+                    : activeView === "day"
+                      ? "이전 날짜"
+                      : "이전 주"
+              }
               onClick={() => moveCalendar(-1)}
             >
               <Icon name="previous" />
             </button>
-            <strong aria-live="polite">{periodLabel(activeView, calendarDate)}</strong>
+            <strong aria-live="polite">
+              {activeView === "statistics"
+                ? statisticsPeriodLabel(statisticsPeriod, calendarDate)
+                : periodLabel(activeView, calendarDate)}
+            </strong>
             <button
               className="icon-button"
-              title={activeView === "month" ? "다음 달" : activeView === "day" ? "다음 날짜" : "다음 주"}
+              title={
+                activeView === "statistics" && statisticsPeriod === "year"
+                  ? "다음 연도"
+                  : (activeView === "month" ||
+                        (activeView === "statistics" && statisticsPeriod === "month"))
+                    ? "다음 달"
+                    : activeView === "day"
+                      ? "다음 날짜"
+                      : "다음 주"
+              }
               onClick={() => moveCalendar(1)}
             >
               <Icon name="next" />
@@ -3806,7 +4004,7 @@ function Workbench({
               className="secondary-button"
               onClick={() => {
                 setCalendarDate(REFERENCE_TODAY);
-                if (!["month", "week", "day"].includes(activeView)) {
+                if (!["month", "week", "day", "statistics"].includes(activeView)) {
                   setActiveView("today");
                 }
               }}

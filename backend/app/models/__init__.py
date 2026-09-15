@@ -14,6 +14,7 @@ from app.models.appointment import (
     Appointment,
     AppointmentHistoryEvent,
     AppointmentProcedure,
+    ScheduleDateOverride,
     ScheduleResource,
 )
 from app.models.patient import Patient, PatientHistoryEvent
@@ -30,6 +31,7 @@ __all__ = [
     "Appointment",
     "AppointmentHistoryEvent",
     "AppointmentProcedure",
+    "ScheduleDateOverride",
     "ScheduleResource",
     "Patient",
     "PatientHistoryEvent",

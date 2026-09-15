@@ -16,6 +16,7 @@ def test_alembic_metadata_contains_complete_iam_model_set() -> None:
         "appointments",
         "appointment_procedures",
         "appointment_history_events",
+        "schedule_date_overrides",
     }
 
     assert expected_tables.issubset(set(Base.metadata.tables))

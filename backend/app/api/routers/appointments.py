@@ -7,27 +7,54 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.appointment_presenters import present_appointment
+from app.api.appointment_presenters import (
+    present_appointment,
+    present_appointment_history,
+)
 from app.api.dependencies import Principal, require_permission, verify_csrf
 from app.core.exceptions import ApiError
 from app.db.session import get_db
 from app.models import Appointment
 from app.schemas.appointment import (
+    AppointmentChangeRequest,
     AppointmentCreateRequest,
+    AppointmentHistoryEventResponse,
     AppointmentListResponse,
     AppointmentResponse,
+    AppointmentStateChangeRequest,
     AvailableSlotResponse,
     BookingBucket,
+    ExceptionConfirmRequest,
     ProcedureCode,
     ProcedureSet,
     ScheduleAvailabilityResponse,
 )
+from app.schemas.common import ErrorResponse
 from app.services import appointments as appointment_service
 
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 appointment_reader = require_permission("appointment.read")
 appointment_creator = require_permission("appointment.create")
+appointment_updater = require_permission("appointment.update")
+appointment_canceller = require_permission("appointment.cancel")
+no_show_recorder = require_permission("appointment.no_show")
+exception_confirmer = require_permission("schedule_override.approve")
+
+MUTATION_RESPONSES: dict[int | str, dict[str, object]] = {
+    403: {"model": ErrorResponse},
+    404: {"model": ErrorResponse},
+    409: {"model": ErrorResponse},
+    422: {"model": ErrorResponse},
+}
+
+
+def _concurrent_time_conflict() -> ApiError:
+    return ApiError(
+        status_code=409,
+        code="TIME_CONFLICT",
+        message="다른 사용자가 같은 시간에 예약을 먼저 저장했습니다.",
+    )
 
 
 @router.get("/availability", response_model=ScheduleAvailabilityResponse)
@@ -46,7 +73,7 @@ def get_availability(
             code="PROCEDURE_DUPLICATE",
             message="같은 검사를 중복 선택할 수 없습니다.",
         )
-    duration, slots = appointment_service.available_slots(
+    duration, slots, policy_version = appointment_service.available_slots(
         db,
         service_date=service_date,
         procedure_codes=procedure_codes,
@@ -58,7 +85,7 @@ def get_availability(
         booking_bucket=booking_bucket,
         duration_minutes=duration,
         procedure_set=(procedure_set or "SET_60") if procedure_codes == {"UPPER", "COLON"} else None,
-        schedule_policy_version=appointment_service.BASE_POLICY_VERSION,
+        schedule_policy_version=policy_version,
         slots=[
             AvailableSlotResponse(start_time=start, end_time=end)
             for start, end in slots
@@ -108,11 +135,29 @@ def get_appointment(
     return present_appointment(appointment)
 
 
+@router.get(
+    "/{appointment_id}/history",
+    response_model=list[AppointmentHistoryEventResponse],
+)
+def get_appointment_history(
+    appointment_id: UUID,
+    _: Principal = Depends(appointment_reader),
+    db: Session = Depends(get_db),
+) -> list[AppointmentHistoryEventResponse]:
+    return [
+        present_appointment_history(event)
+        for event in appointment_service.list_appointment_history(
+            db, appointment_id
+        )
+    ]
+
+
 @router.post(
     "",
     response_model=AppointmentResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(verify_csrf)],
+    responses=MUTATION_RESPONSES,
 )
 def create_appointment(
     payload: AppointmentCreateRequest,
@@ -129,14 +174,112 @@ def create_appointment(
             booking_bucket=payload.booking_bucket,
             procedures=payload.procedures,
             procedure_set=payload.procedure_set,
+            exception_reason=payload.exception_reason,
             actor_user_id=principal.user.id,
         )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise ApiError(
-            status_code=409,
-            code="TIME_CONFLICT",
-            message="다른 사용자가 같은 시간에 예약을 먼저 저장했습니다.",
-        ) from exc
+        raise _concurrent_time_conflict() from exc
+    return present_appointment(appointment)
+
+
+@router.patch(
+    "/{appointment_id}",
+    response_model=AppointmentResponse,
+    dependencies=[Depends(verify_csrf)],
+    responses=MUTATION_RESPONSES,
+)
+def change_appointment(
+    appointment_id: UUID,
+    payload: AppointmentChangeRequest,
+    principal: Principal = Depends(appointment_updater),
+    db: Session = Depends(get_db),
+) -> AppointmentResponse:
+    try:
+        appointment = appointment_service.change_appointment(
+            db,
+            appointment_id=appointment_id,
+            row_version=payload.row_version,
+            reason=payload.reason,
+            actor_user_id=principal.user.id,
+            service_date=payload.service_date,
+            start_time=payload.start_time,
+            care_type=payload.care_type,
+            procedures=payload.procedures,
+            procedure_set=payload.procedure_set,
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise _concurrent_time_conflict() from exc
+    return present_appointment(appointment)
+
+
+@router.post(
+    "/{appointment_id}/cancel",
+    response_model=AppointmentResponse,
+    dependencies=[Depends(verify_csrf)],
+    responses=MUTATION_RESPONSES,
+)
+def cancel_appointment(
+    appointment_id: UUID,
+    payload: AppointmentStateChangeRequest,
+    principal: Principal = Depends(appointment_canceller),
+    db: Session = Depends(get_db),
+) -> AppointmentResponse:
+    appointment = appointment_service.cancel_appointment(
+        db,
+        appointment_id=appointment_id,
+        row_version=payload.row_version,
+        reason=payload.reason,
+        actor_user_id=principal.user.id,
+    )
+    db.commit()
+    return present_appointment(appointment)
+
+
+@router.post(
+    "/{appointment_id}/no-show",
+    response_model=AppointmentResponse,
+    dependencies=[Depends(verify_csrf)],
+    responses=MUTATION_RESPONSES,
+)
+def record_no_show(
+    appointment_id: UUID,
+    payload: AppointmentStateChangeRequest,
+    principal: Principal = Depends(no_show_recorder),
+    db: Session = Depends(get_db),
+) -> AppointmentResponse:
+    appointment = appointment_service.record_no_show(
+        db,
+        appointment_id=appointment_id,
+        row_version=payload.row_version,
+        reason=payload.reason,
+        actor_user_id=principal.user.id,
+    )
+    db.commit()
+    return present_appointment(appointment)
+
+
+@router.post(
+    "/{appointment_id}/confirm-exception",
+    response_model=AppointmentResponse,
+    dependencies=[Depends(verify_csrf)],
+    responses=MUTATION_RESPONSES,
+)
+def confirm_afternoon_exception(
+    appointment_id: UUID,
+    payload: ExceptionConfirmRequest,
+    principal: Principal = Depends(exception_confirmer),
+    db: Session = Depends(get_db),
+) -> AppointmentResponse:
+    appointment = appointment_service.confirm_afternoon_exception(
+        db,
+        appointment_id=appointment_id,
+        row_version=payload.row_version,
+        memo=payload.memo,
+        actor_user_id=principal.user.id,
+    )
+    db.commit()
     return present_appointment(appointment)

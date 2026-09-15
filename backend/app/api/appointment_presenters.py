@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from app.models import Appointment
+from app.models import Appointment, AppointmentHistoryEvent
 from app.schemas.appointment import (
+    AppointmentHistoryEventResponse,
     AppointmentProcedureResponse,
     AppointmentResponse,
 )
-from app.services.appointments import to_seoul
+from app.services.appointments import exception_status, to_seoul
 from app.services.patients import calculate_age
 
 
@@ -44,6 +45,12 @@ def present_appointment(appointment: Appointment) -> AppointmentResponse:
         care_type=appointment.care_type,  # type: ignore[arg-type]
         booking_bucket=appointment.booking_bucket,  # type: ignore[arg-type]
         workflow_state=appointment.workflow_state,  # type: ignore[arg-type]
+        exception_status=exception_status(appointment),  # type: ignore[arg-type]
+        exception_reason=appointment.exception_reason,
+        exception_memo=appointment.exception_memo,
+        exception_registered_by_user_id=appointment.exception_registered_by_user_id,
+        exception_confirmed_by_user_id=appointment.exception_confirmed_by_user_id,
+        exception_confirmed_at=appointment.exception_confirmed_at,
         schedule_policy_version=appointment.schedule_policy_version,
         procedures=[
             AppointmentProcedureResponse(
@@ -55,4 +62,19 @@ def present_appointment(appointment: Appointment) -> AppointmentResponse:
         row_version=appointment.row_version,
         created_at=appointment.created_at,
         updated_at=appointment.updated_at,
+    )
+
+
+def present_appointment_history(
+    event: AppointmentHistoryEvent,
+) -> AppointmentHistoryEventResponse:
+    return AppointmentHistoryEventResponse(
+        id=event.id,
+        event_type=event.event_type,  # type: ignore[arg-type]
+        changed_fields=list(event.changed_fields),
+        before_values=event.before_values,
+        after_values=event.after_values,
+        reason=event.reason,
+        actor_user_id=event.actor_user_id,
+        occurred_at=event.occurred_at,
     )

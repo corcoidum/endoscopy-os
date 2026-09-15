@@ -716,6 +716,10 @@ stateDiagram-v2
 | DEC-28 | 확정 | 신규 운영일부터 새 시스템에만 입력하고 기존 Excel은 이관하지 않은 채 조회용으로 보관 |
 | DEC-29 | 확정 | 조직검체 인계·인수 사실은 별도 개인 로그인 확인 없이 관리자가 사실관계를 확인한 후 기록 |
 | DEC-33 | 확정 | 검진은 검사연도−출생연도 나이, 비검진은 생년월일과 검사예정일 기준 만 나이를 표시하며 현재 나이값은 Patient에 저장하지 않음 |
+| DEC-16 | 확정 (2026-09-15) | 일정 변경은 같은 Appointment의 Revision(현재행 + Append-only 변경이력)으로 기록하고, 취소 후 재예약만 새 Appointment로 생성 |
+| DEC-19 | 확정 (2026-09-15) | 날짜별 운영 종료시각을 바꾸면 마지막 시작시각은 종료시각−점유시간으로 자동 계산 |
+| DEC-20 | 확정 (2026-09-15) | 날짜별 운영시간·Slot은 30분 경계만 허용 |
+| DEC-21 | 확정 (2026-09-15) | 14:00 오후 예외는 등록자와 확인자가 서로 다른 활성 User여야 확정되며, 날짜·시간·검사가 바뀌면 다른 User가 다시 확인 |
 
 ### 9.3 미확정 Decision
 
@@ -729,12 +733,8 @@ stateDiagram-v2
 | DEC-13      | 운영 Gate | 내부 Hostname·CA·직원 PC 인증서 배포                    | Caddy Internal CA, Root 공개인증서만 Client에 배포             |
 | DEC-14      | 운영 Gate | Docker Desktop·Native Service와 재부팅 자동기동        | 실제 장비 Boot Test 후 주 배포방식 확정                           |
 | DEC-15      | 미확정     | 취소·No-show 3회 산정기간·제외사유                        | 현재는 모든 유효 Event 합산; 환자 귀책·기간정책 검토                     |
-| DEC-16      | 미확정     | 일정 변경과 재예약 Identity                            | 변경은 같은 Appointment의 Revision, 취소 후 재예약은 새 Appointment |
 | DEC-17      | 미확정     | “전체 실제 검사 건수” 정의                               | 실제 완료·부분완료 Procedure Execution 기준                     |
 | DEC-18      | 미확정     | Resource 증가 시 수용량의 전체·Resource별 범위             | 전체 기본 상한 + Resource별 Override 확장                      |
-| DEC-19      | 미확정     | 운영 종료 변경 시 마지막 시작 계산                           | 종료시각−점유시간 자동 계산, 명시적 Slot만 예외                         |
-| DEC-20      | 미확정     | 30분 경계 밖 추가 Slot                               | 초기에는 30분 경계만 허용                                       |
-| DEC-21      | 미확정     | 오후 예외 등록자와 확인자 분리                              | 서로 다른 활성 User                                         |
 | DEC-22      | 미확정     | Pathology Case와 Specimen Cardinality           | 검사 1건당 Case 1개, 여러 채취부위는 Specimen 1:N                 |
 | DEC-23      | 미확정     | 임시 차트번호·중복예외                                   | 정규화 Unique, 임시번호는 별도 Namespace                        |
 | DEC-24      | 운영 Gate | Subnet, Session, Audit 조회, RPO·RTO, 보존세대, 실패알림 | 실장비·업무중단 허용수준 기준 승인                                   |

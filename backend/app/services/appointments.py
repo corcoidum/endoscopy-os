@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from uuid import UUID
 
@@ -14,6 +14,7 @@ from app.models import (
     AppointmentHistoryEvent,
     AppointmentProcedure,
     Patient,
+    ScheduleDateOverride,
     ScheduleResource,
 )
 from app.schemas.appointment import (
@@ -29,6 +30,15 @@ SEOUL = ZoneInfo("Asia/Seoul")
 DEFAULT_RESOURCE_CODE = "ENDOSCOPY_MAIN"
 BASE_POLICY_VERSION = "BASE-2026-07-30"
 SLOT_MINUTES = 30
+AFTERNOON_START = time(14, 0)
+AFTERNOON_PATIENT_CAPACITY = 1
+ACTIVE_WORKFLOW_STATE = "BOOKED"
+_OVERRIDE_VERSION_CODES = {
+    "CLOSED": "C",
+    "OPERATING_HOURS": "H",
+    "CAPACITY": "Q",
+    "AFTERNOON_ALLOW": "A",
+}
 
 
 @dataclass(frozen=True)
@@ -44,6 +54,23 @@ class ScheduleContext:
     appointments: list[Appointment]
     upper_count: int
     colon_count: int
+
+
+@dataclass(frozen=True)
+class ResolvedDayPolicy:
+    """DEC-03 우선순위로 요일 기본 규칙과 승인된 날짜별 Rule을 합친 결과."""
+
+    service_date: date
+    closed: bool
+    morning: ScheduleRule | None
+    afternoon_allowed: bool
+    policy_version: str
+
+
+@dataclass(frozen=True)
+class PolicyConflict:
+    appointment: Appointment
+    issue: str
 
 
 def procedure_duration(
@@ -109,19 +136,95 @@ def _procedure_codes(appointment: Appointment) -> set[ProcedureCode]:
     }
 
 
-def _load_context(db: Session, service_date: date) -> ScheduleContext:
-    appointments = list(
+def _schedule_closed(service_date: date) -> ApiError:
+    return ApiError(
+        status_code=409,
+        code="SCHEDULE_CLOSED",
+        message=(
+            "일요일은 기본 휴진일입니다."
+            if service_date.isoweekday() == 7
+            else "선택한 날짜는 휴진일로 지정되었습니다."
+        ),
+    )
+
+
+def _policy_version(overrides: list[ScheduleDateOverride]) -> str:
+    if not overrides:
+        return BASE_POLICY_VERSION
+    suffix = ",".join(
+        f"{_OVERRIDE_VERSION_CODES[item.rule_type]}{item.id.hex[:6]}"
+        for item in overrides
+    )
+    return f"{BASE_POLICY_VERSION}+{suffix}"[:80]
+
+
+def resolve_day_policy(db: Session, service_date: date) -> ResolvedDayPolicy:
+    overrides = list(
         db.scalars(
-            select(Appointment)
+            select(ScheduleDateOverride)
             .where(
-                Appointment.service_date == service_date,
-                Appointment.occupies_slot.is_(True),
-                Appointment.booking_bucket == "STANDARD_MORNING",
+                ScheduleDateOverride.service_date == service_date,
+                ScheduleDateOverride.status == "APPROVED",
             )
-            .options(selectinload(Appointment.procedures))
-            .order_by(Appointment.scheduled_start_at)
+            .order_by(ScheduleDateOverride.rule_type, ScheduleDateOverride.id)
         ).all()
     )
+    by_type = {item.rule_type: item for item in overrides}
+    version = _policy_version(overrides)
+
+    # 1. 휴진은 다른 모든 날짜별 Rule보다 우선한다.
+    if service_date.isoweekday() == 7 or "CLOSED" in by_type:
+        return ResolvedDayPolicy(service_date, True, None, False, version)
+
+    base = base_rule_for(service_date)
+    start_minute, end_minute = base.start_minute, base.end_minute
+    upper_capacity, colon_capacity = base.upper_capacity, base.colon_capacity
+
+    # 3. 운영시간 변경: 마지막 시작시각은 종료시각−점유시간으로 자동 계산된다(DEC-19).
+    hours = by_type.get("OPERATING_HOURS")
+    if hours is not None and hours.override_start_time and hours.override_end_time:
+        start_minute = _time_to_minutes(hours.override_start_time)
+        end_minute = _time_to_minutes(hours.override_end_time)
+
+    # 4. 수용량 변경: 입력한 항목만 요일 기본값을 대체한다.
+    capacity = by_type.get("CAPACITY")
+    if capacity is not None:
+        if capacity.override_upper_capacity is not None:
+            upper_capacity = capacity.override_upper_capacity
+        if capacity.override_colon_capacity is not None:
+            colon_capacity = capacity.override_colon_capacity
+
+    return ResolvedDayPolicy(
+        service_date=service_date,
+        closed=False,
+        morning=ScheduleRule(
+            start_minute, end_minute, upper_capacity, colon_capacity
+        ),
+        afternoon_allowed="AFTERNOON_ALLOW" in by_type,
+        policy_version=version,
+    )
+
+
+def _load_context(
+    db: Session,
+    service_date: date,
+    *,
+    booking_bucket: BookingBucket = "STANDARD_MORNING",
+    exclude_appointment_id: UUID | None = None,
+) -> ScheduleContext:
+    statement = (
+        select(Appointment)
+        .where(
+            Appointment.service_date == service_date,
+            Appointment.occupies_slot.is_(True),
+            Appointment.booking_bucket == booking_bucket,
+        )
+        .options(selectinload(Appointment.procedures))
+        .order_by(Appointment.scheduled_start_at)
+    )
+    if exclude_appointment_id is not None:
+        statement = statement.where(Appointment.id != exclude_appointment_id)
+    appointments = list(db.scalars(statement).all())
     upper_count = sum("UPPER" in _procedure_codes(item) for item in appointments)
     colon_count = sum("COLON" in _procedure_codes(item) for item in appointments)
     return ScheduleContext(appointments, upper_count, colon_count)
@@ -148,8 +251,9 @@ def validate_standard_morning(
     procedure_codes: set[ProcedureCode],
     context: ScheduleContext,
     procedure_set: ProcedureSet | None = None,
+    rule: ScheduleRule | None = None,
 ) -> int:
-    rule = base_rule_for(service_date)
+    rule = rule or base_rule_for(service_date)
     duration = procedure_duration(procedure_codes, procedure_set)
     start_minute = _time_to_minutes(start_time)
     end_minute = start_minute + duration
@@ -193,6 +297,39 @@ def validate_standard_morning(
     return duration
 
 
+def validate_afternoon_exception(
+    *,
+    start_time: time,
+    procedure_codes: set[ProcedureCode],
+    policy: ResolvedDayPolicy,
+    context: ScheduleContext,
+    procedure_set: ProcedureSet | None = None,
+) -> int:
+    if policy.closed:
+        raise _schedule_closed(policy.service_date)
+    if not policy.afternoon_allowed:
+        raise ApiError(
+            status_code=409,
+            code="AFTERNOON_NOT_ALLOWED",
+            message="선택한 날짜는 14:00 오후 예외가 허용되지 않았습니다.",
+        )
+    duration = procedure_duration(procedure_codes, procedure_set)
+    if start_time != AFTERNOON_START:
+        raise ApiError(
+            status_code=422,
+            code="AFTERNOON_START_TIME_INVALID",
+            message="오후 예외 예약은 14:00에 시작합니다.",
+        )
+    # 확인 대기 예약도 오후 Capacity를 점유한다.
+    if len(context.appointments) >= AFTERNOON_PATIENT_CAPACITY:
+        raise ApiError(
+            status_code=409,
+            code="AFTERNOON_LIMIT_EXCEEDED",
+            message="선택한 날짜에는 이미 오후 예외 예약이 있습니다.",
+        )
+    return duration
+
+
 def get_default_resource(db: Session) -> ScheduleResource:
     resource = db.scalar(
         select(ScheduleResource).where(
@@ -209,13 +346,52 @@ def get_default_resource(db: Session) -> ScheduleResource:
     return resource
 
 
-def _lock_schedule_date(db: Session, service_date: date) -> None:
+def lock_schedule_date(db: Session, service_date: date) -> None:
     # PostgreSQL에서는 같은 날짜의 Capacity 계산과 저장을 직렬화한다.
     if db.get_bind().dialect.name == "postgresql":
         db.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:scope))"),
             {"scope": f"schedule:{service_date.isoformat()}"},
         )
+
+
+def _validate_candidate(
+    db: Session,
+    *,
+    service_date: date,
+    start_time: time,
+    booking_bucket: BookingBucket,
+    procedure_codes: set[ProcedureCode],
+    procedure_set: ProcedureSet | None,
+    exclude_appointment_id: UUID | None = None,
+) -> tuple[int, ResolvedDayPolicy]:
+    policy = resolve_day_policy(db, service_date)
+    if policy.closed:
+        raise _schedule_closed(service_date)
+    context = _load_context(
+        db,
+        service_date,
+        booking_bucket=booking_bucket,
+        exclude_appointment_id=exclude_appointment_id,
+    )
+    if booking_bucket == "AFTERNOON_EXCEPTION":
+        duration = validate_afternoon_exception(
+            start_time=start_time,
+            procedure_codes=procedure_codes,
+            procedure_set=procedure_set,
+            policy=policy,
+            context=context,
+        )
+    else:
+        duration = validate_standard_morning(
+            service_date=service_date,
+            start_time=start_time,
+            procedure_codes=procedure_codes,
+            procedure_set=procedure_set,
+            context=context,
+            rule=policy.morning,
+        )
+    return duration, policy
 
 
 def available_slots(
@@ -225,20 +401,37 @@ def available_slots(
     procedure_codes: set[ProcedureCode],
     booking_bucket: BookingBucket,
     procedure_set: ProcedureSet | None = None,
-) -> tuple[int, list[tuple[time, time]]]:
-    if booking_bucket != "STANDARD_MORNING":
-        raise ApiError(
-            status_code=409,
-            code="AFTERNOON_POLICY_NOT_IMPLEMENTED",
-            message="14:00 예외 승인 규칙은 Sprint 3B에서 제공됩니다.",
-        )
-    rule = base_rule_for(service_date)
+) -> tuple[int, list[tuple[time, time]], str]:
+    policy = resolve_day_policy(db, service_date)
+    if policy.closed or policy.morning is None:
+        raise _schedule_closed(service_date)
     duration = procedure_duration(procedure_codes, procedure_set)
-    context = _load_context(db, service_date)
+    context = _load_context(db, service_date, booking_bucket=booking_bucket)
+
+    if booking_bucket == "AFTERNOON_EXCEPTION":
+        try:
+            validate_afternoon_exception(
+                start_time=AFTERNOON_START,
+                procedure_codes=procedure_codes,
+                procedure_set=procedure_set,
+                policy=policy,
+                context=context,
+            )
+        except ApiError as exc:
+            if exc.code == "AFTERNOON_NOT_ALLOWED":
+                raise
+            return duration, [], policy.policy_version
+        afternoon_start = _time_to_minutes(AFTERNOON_START)
+        return (
+            duration,
+            [(AFTERNOON_START, _minutes_to_time(afternoon_start + duration))],
+            policy.policy_version,
+        )
+
     slots: list[tuple[time, time]] = []
     for start_minute in range(
-        rule.start_minute,
-        rule.end_minute,
+        policy.morning.start_minute,
+        policy.morning.end_minute,
         SLOT_MINUTES,
     ):
         candidate_time = _minutes_to_time(start_minute)
@@ -249,33 +442,17 @@ def available_slots(
                 procedure_codes=procedure_codes,
                 procedure_set=procedure_set,
                 context=context,
+                rule=policy.morning,
             )
         except ApiError:
             continue
         slots.append(
             (candidate_time, _minutes_to_time(start_minute + duration))
         )
-    return duration, slots
+    return duration, slots, policy.policy_version
 
 
-def create_appointment(
-    db: Session,
-    *,
-    patient_id: UUID,
-    service_date: date,
-    start_time: time,
-    care_type: CareType,
-    booking_bucket: BookingBucket,
-    procedures: list[AppointmentProcedureInput],
-    actor_user_id: UUID,
-    procedure_set: ProcedureSet | None = None,
-) -> Appointment:
-    if booking_bucket != "STANDARD_MORNING":
-        raise ApiError(
-            status_code=409,
-            code="AFTERNOON_POLICY_NOT_IMPLEMENTED",
-            message="14:00 예외 승인 규칙은 Sprint 3B에서 제공됩니다.",
-        )
+def _require_bookable_patient(db: Session, patient_id: UUID) -> Patient:
     patient = db.get(Patient, patient_id)
     if patient is None:
         raise ApiError(
@@ -289,17 +466,41 @@ def create_appointment(
             code="PATIENT_INACTIVE",
             message="비활성 환자에게 새 예약을 등록할 수 없습니다.",
         )
+    return patient
+
+
+def create_appointment(
+    db: Session,
+    *,
+    patient_id: UUID,
+    service_date: date,
+    start_time: time,
+    care_type: CareType,
+    booking_bucket: BookingBucket,
+    procedures: list[AppointmentProcedureInput],
+    actor_user_id: UUID,
+    procedure_set: ProcedureSet | None = None,
+    exception_reason: str | None = None,
+) -> Appointment:
+    is_afternoon = booking_bucket == "AFTERNOON_EXCEPTION"
+    if is_afternoon and not (exception_reason or "").strip():
+        raise ApiError(
+            status_code=422,
+            code="EXCEPTION_REASON_REQUIRED",
+            message="14:00 오후 예외 예약에는 사유가 필요합니다.",
+        )
+    patient = _require_bookable_patient(db, patient_id)
 
     resource = get_default_resource(db)
-    _lock_schedule_date(db, service_date)
-    context = _load_context(db, service_date)
+    lock_schedule_date(db, service_date)
     codes = {item.procedure_code for item in procedures}
-    duration = validate_standard_morning(
+    duration, policy = _validate_candidate(
+        db,
         service_date=service_date,
         start_time=start_time,
+        booking_bucket=booking_bucket,
         procedure_codes=codes,
         procedure_set=procedure_set,
-        context=context,
     )
     starts_at = datetime.combine(service_date, start_time, tzinfo=SEOUL)
     ends_at = starts_at + timedelta(minutes=duration)
@@ -311,10 +512,12 @@ def create_appointment(
         scheduled_end_at=ends_at,
         booking_bucket=booking_bucket,
         care_type=care_type,
-        workflow_state="BOOKED",
+        workflow_state=ACTIVE_WORKFLOW_STATE,
         occupies_slot=True,
-        schedule_policy_version=BASE_POLICY_VERSION,
+        schedule_policy_version=policy.policy_version,
         procedure_set=(procedure_set or "SET_60") if codes == {"UPPER", "COLON"} else None,
+        exception_reason=exception_reason.strip() if is_afternoon and exception_reason else None,
+        exception_registered_by_user_id=actor_user_id if is_afternoon else None,
         created_by_user_id=actor_user_id,
         updated_by_user_id=actor_user_id,
         procedures=[
@@ -327,20 +530,26 @@ def create_appointment(
     )
     db.add(appointment)
     db.flush()
-    snapshot = appointment_snapshot(appointment)
-    db.add(
-        AppointmentHistoryEvent(
-            appointment_id=appointment.id,
-            event_type="CREATED",
-            changed_fields=sorted(snapshot),
-            before_values=None,
-            after_values=snapshot,
-            reason="신규 예약 등록",
-            actor_user_id=actor_user_id,
-        )
+    _record_history(
+        db,
+        appointment,
+        event_type="CREATED",
+        before=None,
+        reason=(
+            "14:00 오후 예외 예약 등록(확인 대기)"
+            if is_afternoon
+            else "신규 예약 등록"
+        ),
+        actor_user_id=actor_user_id,
     )
     db.flush()
     return appointment
+
+
+def exception_status(appointment: Appointment) -> str:
+    if appointment.booking_bucket != "AFTERNOON_EXCEPTION":
+        return "NOT_APPLICABLE"
+    return "CONFIRMED" if appointment.exception_confirmed_at else "PENDING"
 
 
 def appointment_snapshot(appointment: Appointment) -> dict[str, object]:
@@ -353,14 +562,335 @@ def appointment_snapshot(appointment: Appointment) -> dict[str, object]:
         "care_type": appointment.care_type,
         "booking_bucket": appointment.booking_bucket,
         "workflow_state": appointment.workflow_state,
+        "exception_status": exception_status(appointment),
         "procedures": [
             {
                 "procedure_code": item.procedure_code,
                 "sedation_mode": item.sedation_mode,
             }
-            for item in appointment.procedures
+            for item in sorted(
+                appointment.procedures, key=lambda item: item.procedure_code
+            )
         ],
     }
+
+
+def _record_history(
+    db: Session,
+    appointment: Appointment,
+    *,
+    event_type: str,
+    before: dict[str, object] | None,
+    reason: str,
+    actor_user_id: UUID,
+) -> None:
+    after = appointment_snapshot(appointment)
+    changed_fields = sorted(
+        key for key, value in after.items()
+        if before is None or before.get(key) != value
+    )
+    db.add(
+        AppointmentHistoryEvent(
+            appointment_id=appointment.id,
+            event_type=event_type,
+            changed_fields=changed_fields,
+            before_values=before,
+            after_values=after,
+            reason=reason,
+            actor_user_id=actor_user_id,
+            # 같은 초에 여러 Event가 생겨도 순서가 보존되도록 Application 시각을 쓴다.
+            occurred_at=datetime.now(UTC),
+        )
+    )
+
+
+def _get_appointment_for_update(db: Session, appointment_id: UUID) -> Appointment:
+    appointment = db.scalar(
+        select(Appointment)
+        .where(Appointment.id == appointment_id)
+        .with_for_update()
+        .options(
+            selectinload(Appointment.procedures),
+            selectinload(Appointment.resource),
+            selectinload(Appointment.patient),
+        )
+    )
+    if appointment is None:
+        raise ApiError(
+            status_code=404,
+            code="APPOINTMENT_NOT_FOUND",
+            message="예약을 찾을 수 없습니다.",
+        )
+    return appointment
+
+
+def _ensure_active_version(appointment: Appointment, row_version: int) -> None:
+    if appointment.workflow_state != ACTIVE_WORKFLOW_STATE:
+        raise ApiError(
+            status_code=409,
+            code="APPOINTMENT_NOT_ACTIVE",
+            message="이미 취소되었거나 No-show로 기록된 예약입니다.",
+        )
+    if appointment.row_version != row_version:
+        raise ApiError(
+            status_code=409,
+            code="STALE_ROW_VERSION",
+            message="다른 사용자가 먼저 예약을 변경했습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.",
+        )
+
+
+def _replace_procedures(
+    appointment: Appointment, sedation_by_code: dict[str, str]
+) -> None:
+    # 같은 검사코드 행은 수정하고, 빠진 검사만 제거해 Unique 제약 충돌을 피한다.
+    for procedure in list(appointment.procedures):
+        if procedure.procedure_code in sedation_by_code:
+            procedure.sedation_mode = sedation_by_code[procedure.procedure_code]
+        else:
+            appointment.procedures.remove(procedure)
+    existing_codes = {item.procedure_code for item in appointment.procedures}
+    for code in sorted(set(sedation_by_code) - existing_codes):
+        appointment.procedures.append(
+            AppointmentProcedure(
+                procedure_code=code, sedation_mode=sedation_by_code[code]
+            )
+        )
+
+
+def change_appointment(
+    db: Session,
+    *,
+    appointment_id: UUID,
+    row_version: int,
+    reason: str,
+    actor_user_id: UUID,
+    service_date: date | None = None,
+    start_time: time | None = None,
+    care_type: CareType | None = None,
+    procedures: list[AppointmentProcedureInput] | None = None,
+    procedure_set: ProcedureSet | None = None,
+) -> Appointment:
+    """같은 Appointment의 Revision으로 일정을 변경한다(DEC-16)."""
+
+    appointment = _get_appointment_for_update(db, appointment_id)
+    _ensure_active_version(appointment, row_version)
+
+    old_start = to_seoul(appointment.scheduled_start_at)
+    old_end = to_seoul(appointment.scheduled_end_at)
+    old_sedation = {
+        item.procedure_code: item.sedation_mode for item in appointment.procedures
+    }
+    new_date = service_date or appointment.service_date
+    new_start_time = start_time or old_start.time().replace(tzinfo=None)
+    new_care_type = care_type or appointment.care_type
+    new_sedation = (
+        {item.procedure_code: item.sedation_mode for item in procedures}
+        if procedures is not None
+        else dict(old_sedation)
+    )
+    new_codes: set[ProcedureCode] = set(new_sedation)  # type: ignore[arg-type]
+    if new_codes == {"UPPER", "COLON"}:
+        new_procedure_set: ProcedureSet | None = (
+            procedure_set
+            or (appointment.procedure_set if set(old_sedation) == new_codes else None)  # type: ignore[assignment]
+            or "SET_60"
+        )
+    else:
+        procedure_duration(new_codes, procedure_set)
+        new_procedure_set = None
+
+    duration = procedure_duration(new_codes, new_procedure_set)
+    starts_at = datetime.combine(new_date, new_start_time, tzinfo=SEOUL)
+    ends_at = starts_at + timedelta(minutes=duration)
+    schedule_changed = (
+        new_date != appointment.service_date
+        or starts_at != old_start
+        or ends_at != old_end
+        or set(old_sedation) != new_codes
+    )
+    if (
+        not schedule_changed
+        and new_care_type == appointment.care_type
+        and new_sedation == old_sedation
+        and new_procedure_set == appointment.procedure_set
+    ):
+        raise ApiError(
+            status_code=422,
+            code="APPOINTMENT_NO_CHANGES",
+            message="변경할 내용이 없습니다.",
+        )
+
+    before = appointment_snapshot(appointment)
+    for locked_date in sorted({appointment.service_date, new_date}):
+        lock_schedule_date(db, locked_date)
+    _, policy = _validate_candidate(
+        db,
+        service_date=new_date,
+        start_time=new_start_time,
+        booking_bucket=appointment.booking_bucket,  # type: ignore[arg-type]
+        procedure_codes=new_codes,
+        procedure_set=new_procedure_set,
+        exclude_appointment_id=appointment.id,
+    )
+
+    appointment.service_date = new_date
+    appointment.scheduled_start_at = starts_at
+    appointment.scheduled_end_at = ends_at
+    appointment.care_type = new_care_type
+    appointment.procedure_set = new_procedure_set
+    appointment.schedule_policy_version = policy.policy_version
+    _replace_procedures(appointment, new_sedation)
+    if appointment.booking_bucket == "AFTERNOON_EXCEPTION" and schedule_changed:
+        # 날짜·시간·검사가 바뀐 오후 예외는 변경한 직원이 아닌 다른 직원이 다시 확인한다.
+        appointment.exception_registered_by_user_id = actor_user_id
+        appointment.exception_confirmed_by_user_id = None
+        appointment.exception_confirmed_at = None
+    appointment.updated_by_user_id = actor_user_id
+    appointment.row_version += 1
+    db.flush()
+    _record_history(
+        db,
+        appointment,
+        event_type="UPDATED",
+        before=before,
+        reason=reason,
+        actor_user_id=actor_user_id,
+    )
+    db.flush()
+    return appointment
+
+
+def _release_slot(
+    db: Session,
+    *,
+    appointment_id: UUID,
+    row_version: int,
+    reason: str,
+    actor_user_id: UUID,
+    workflow_state: str,
+    now: datetime | None = None,
+) -> Appointment:
+    appointment = _get_appointment_for_update(db, appointment_id)
+    _ensure_active_version(appointment, row_version)
+    if workflow_state == "NO_SHOW":
+        now = now or datetime.now(UTC)
+        if to_seoul(appointment.scheduled_start_at) > now:
+            raise ApiError(
+                status_code=409,
+                code="NO_SHOW_TOO_EARLY",
+                message="예약 시작시각이 지난 뒤에 No-show로 기록할 수 있습니다.",
+            )
+    lock_schedule_date(db, appointment.service_date)
+    before = appointment_snapshot(appointment)
+    appointment.workflow_state = workflow_state
+    appointment.occupies_slot = False
+    appointment.updated_by_user_id = actor_user_id
+    appointment.row_version += 1
+    db.flush()
+    _record_history(
+        db,
+        appointment,
+        event_type="CANCELLED" if workflow_state == "CANCELLED" else "NO_SHOW",
+        before=before,
+        reason=reason,
+        actor_user_id=actor_user_id,
+    )
+    db.flush()
+    return appointment
+
+
+def cancel_appointment(
+    db: Session,
+    *,
+    appointment_id: UUID,
+    row_version: int,
+    reason: str,
+    actor_user_id: UUID,
+) -> Appointment:
+    return _release_slot(
+        db,
+        appointment_id=appointment_id,
+        row_version=row_version,
+        reason=reason,
+        actor_user_id=actor_user_id,
+        workflow_state="CANCELLED",
+    )
+
+
+def record_no_show(
+    db: Session,
+    *,
+    appointment_id: UUID,
+    row_version: int,
+    reason: str,
+    actor_user_id: UUID,
+    now: datetime | None = None,
+) -> Appointment:
+    return _release_slot(
+        db,
+        appointment_id=appointment_id,
+        row_version=row_version,
+        reason=reason,
+        actor_user_id=actor_user_id,
+        workflow_state="NO_SHOW",
+        now=now,
+    )
+
+
+def confirm_afternoon_exception(
+    db: Session,
+    *,
+    appointment_id: UUID,
+    row_version: int,
+    memo: str,
+    actor_user_id: UUID,
+    now: datetime | None = None,
+) -> Appointment:
+    appointment = _get_appointment_for_update(db, appointment_id)
+    _ensure_active_version(appointment, row_version)
+    if appointment.booking_bucket != "AFTERNOON_EXCEPTION":
+        raise ApiError(
+            status_code=409,
+            code="NOT_AN_EXCEPTION_APPOINTMENT",
+            message="14:00 오후 예외 예약이 아닙니다.",
+        )
+    if appointment.exception_confirmed_at is not None:
+        raise ApiError(
+            status_code=409,
+            code="EXCEPTION_ALREADY_CONFIRMED",
+            message="이미 확인된 오후 예외 예약입니다.",
+        )
+    if appointment.exception_registered_by_user_id == actor_user_id:
+        raise ApiError(
+            status_code=409,
+            code="EXCEPTION_CONFIRMER_MUST_DIFFER",
+            message="오후 예외는 등록한 직원이 아닌 다른 직원이 확인해야 합니다.",
+        )
+    policy = resolve_day_policy(db, appointment.service_date)
+    if policy.closed or not policy.afternoon_allowed:
+        raise ApiError(
+            status_code=409,
+            code="AFTERNOON_NOT_ALLOWED",
+            message="선택한 날짜는 14:00 오후 예외가 허용되지 않았습니다.",
+        )
+
+    before = appointment_snapshot(appointment)
+    appointment.exception_confirmed_by_user_id = actor_user_id
+    appointment.exception_confirmed_at = now or datetime.now(UTC)
+    appointment.exception_memo = memo.strip()
+    appointment.updated_by_user_id = actor_user_id
+    appointment.row_version += 1
+    db.flush()
+    _record_history(
+        db,
+        appointment,
+        event_type="EXCEPTION_CONFIRMED",
+        before=before,
+        reason="14:00 오후 예외 확인",
+        actor_user_id=actor_user_id,
+    )
+    db.flush()
+    return appointment
 
 
 def list_appointments(
@@ -393,3 +923,65 @@ def list_appointments(
             )
         ).all()
     )
+
+
+def list_appointment_history(
+    db: Session, appointment_id: UUID
+) -> list[AppointmentHistoryEvent]:
+    if db.get(Appointment, appointment_id) is None:
+        raise ApiError(
+            status_code=404,
+            code="APPOINTMENT_NOT_FOUND",
+            message="예약을 찾을 수 없습니다.",
+        )
+    return list(
+        db.scalars(
+            select(AppointmentHistoryEvent)
+            .where(AppointmentHistoryEvent.appointment_id == appointment_id)
+            .order_by(AppointmentHistoryEvent.occurred_at)
+        ).all()
+    )
+
+
+def find_policy_conflicts(db: Session, service_date: date) -> list[PolicyConflict]:
+    """새 날짜 규칙과 어긋나게 된 활성 예약을 찾는다. 자동 취소·이동하지 않는다."""
+
+    policy = resolve_day_policy(db, service_date)
+    appointments = list(
+        db.scalars(
+            select(Appointment)
+            .where(
+                Appointment.service_date == service_date,
+                Appointment.occupies_slot.is_(True),
+            )
+            .options(selectinload(Appointment.procedures))
+            .order_by(Appointment.scheduled_start_at)
+        ).all()
+    )
+    conflicts: list[PolicyConflict] = []
+    upper_count = 0
+    colon_count = 0
+    for appointment in appointments:
+        if policy.closed or policy.morning is None:
+            conflicts.append(PolicyConflict(appointment, "CLOSED"))
+            continue
+        if appointment.booking_bucket == "AFTERNOON_EXCEPTION":
+            if not policy.afternoon_allowed:
+                conflicts.append(PolicyConflict(appointment, "AFTERNOON_NOT_ALLOWED"))
+            continue
+        rule = policy.morning
+        start_minute = _time_to_minutes(to_seoul(appointment.scheduled_start_at).time())
+        end_minute = _time_to_minutes(to_seoul(appointment.scheduled_end_at).time())
+        if start_minute < rule.start_minute or end_minute > rule.end_minute:
+            conflicts.append(PolicyConflict(appointment, "OUTSIDE_OPERATING_HOURS"))
+            continue
+        codes = _procedure_codes(appointment)
+        upper_count += int("UPPER" in codes)
+        colon_count += int("COLON" in codes)
+        if (
+            rule.upper_capacity is not None and upper_count > rule.upper_capacity
+        ) or (
+            rule.colon_capacity is not None and colon_count > rule.colon_capacity
+        ):
+            conflicts.append(PolicyConflict(appointment, "CAPACITY_EXCEEDED"))
+    return conflicts

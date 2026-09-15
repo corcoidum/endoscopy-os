@@ -198,7 +198,7 @@ def test_weekday_upper_capacity_blocks_sixth_case(client: TestClient) -> None:
     assert sixth.json()["code"] == "CAPACITY_EXCEEDED"
 
 
-def test_sunday_and_afternoon_exception_are_not_open_yet(
+def test_sunday_and_unapproved_afternoon_exception_are_closed(
     client: TestClient,
 ) -> None:
     login_admin(client)
@@ -221,7 +221,7 @@ def test_sunday_and_afternoon_exception_are_not_open_yet(
         ],
     )
     assert afternoon.status_code == 409
-    assert afternoon.json()["code"] == "AFTERNOON_POLICY_NOT_IMPLEMENTED"
+    assert afternoon.json()["code"] == "AFTERNOON_NOT_ALLOWED"
 
 
 def test_appointment_create_requires_csrf(client: TestClient) -> None:

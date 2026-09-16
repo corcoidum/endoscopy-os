@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Appointment, AppointmentHistoryEvent
-from tests.conftest import TEST_ORIGIN, login_admin
+from tests.conftest import (
+    BOOKING_DAY,
+    CLOSED_SUNDAY,
+    FAR_FUTURE_DAY,
+    NEXT_BOOKING_DAY,
+    OVERRIDE_DAY,
+    SHORT_DAY,
+    TEST_ORIGIN,
+    iso,
+    login_admin,
+)
 
 
 def _create_patient(client: TestClient, csrf_token: str) -> str:
@@ -57,7 +69,7 @@ def test_combined_set_90_occupies_ninety_minutes(client: TestClient) -> None:
     availability = client.get(
         "/api/appointments/availability",
         params=[
-            ("service_date", "2026-09-10"),
+            ("service_date", iso(BOOKING_DAY)),
             ("procedures", "UPPER"),
             ("procedures", "COLON"),
             ("procedure_set", "SET_90"),
@@ -75,7 +87,7 @@ def test_combined_set_90_occupies_ninety_minutes(client: TestClient) -> None:
         client,
         csrf_token=csrf_token,
         patient_id=patient_id,
-        service_date="2026-09-10",
+        service_date=iso(BOOKING_DAY),
         start_time="09:00",
         procedures=[
             {"procedure_code": "UPPER", "sedation_mode": "SEDATED"},
@@ -99,7 +111,7 @@ def test_create_list_and_history_are_persisted(
     availability = client.get(
         "/api/appointments/availability",
         params=[
-            ("service_date", "2026-09-10"),
+            ("service_date", iso(BOOKING_DAY)),
             ("procedures", "UPPER"),
         ],
     )
@@ -110,7 +122,7 @@ def test_create_list_and_history_are_persisted(
         client,
         csrf_token=csrf_token,
         patient_id=patient_id,
-        service_date="2026-09-10",
+        service_date=iso(BOOKING_DAY),
         start_time="09:00",
         procedures=[
             {"procedure_code": "UPPER", "sedation_mode": "SEDATED"}
@@ -124,7 +136,7 @@ def test_create_list_and_history_are_persisted(
 
     listing = client.get(
         "/api/appointments",
-        params={"start_date": "2026-09-10", "end_date": "2026-09-10"},
+        params={"start_date": iso(BOOKING_DAY), "end_date": iso(BOOKING_DAY)},
     )
     assert listing.status_code == 200
     assert listing.json()["total"] == 1
@@ -146,7 +158,7 @@ def test_overlapping_appointment_is_blocked(client: TestClient) -> None:
         client,
         csrf_token=csrf_token,
         patient_id=patient_id,
-        service_date="2026-09-10",
+        service_date=iso(BOOKING_DAY),
         start_time="09:00",
         procedures=[
             {"procedure_code": "COLON", "sedation_mode": "NON_SEDATED"}
@@ -158,7 +170,7 @@ def test_overlapping_appointment_is_blocked(client: TestClient) -> None:
         client,
         csrf_token=csrf_token,
         patient_id=patient_id,
-        service_date="2026-09-10",
+        service_date=iso(BOOKING_DAY),
         start_time="09:30",
         procedures=[
             {"procedure_code": "UPPER", "sedation_mode": "SEDATED"}
@@ -180,7 +192,7 @@ def test_weekday_upper_capacity_blocks_sixth_case(client: TestClient) -> None:
             client,
             csrf_token=csrf_token,
             patient_id=patient_id,
-            service_date="2026-09-10",
+            service_date=iso(BOOKING_DAY),
             start_time=start_time,
             procedures=procedure,
         )
@@ -190,7 +202,7 @@ def test_weekday_upper_capacity_blocks_sixth_case(client: TestClient) -> None:
         client,
         csrf_token=csrf_token,
         patient_id=patient_id,
-        service_date="2026-09-10",
+        service_date=iso(BOOKING_DAY),
         start_time="11:30",
         procedures=procedure,
     )
@@ -205,7 +217,7 @@ def test_sunday_and_unapproved_afternoon_exception_are_closed(
     sunday = client.get(
         "/api/appointments/availability",
         params=[
-            ("service_date", "2026-09-13"),
+            ("service_date", iso(CLOSED_SUNDAY)),
             ("procedures", "UPPER"),
         ],
     )
@@ -215,7 +227,7 @@ def test_sunday_and_unapproved_afternoon_exception_are_closed(
     afternoon = client.get(
         "/api/appointments/availability",
         params=[
-            ("service_date", "2026-09-10"),
+            ("service_date", iso(BOOKING_DAY)),
             ("procedures", "UPPER"),
             ("booking_bucket", "AFTERNOON_EXCEPTION"),
         ],
@@ -231,7 +243,7 @@ def test_appointment_create_requires_csrf(client: TestClient) -> None:
         "/api/appointments",
         json={
             "patient_id": patient_id,
-            "service_date": "2026-09-10",
+            "service_date": iso(BOOKING_DAY),
             "start_time": "09:00",
             "care_type": "GENERAL",
             "procedures": [
@@ -241,3 +253,60 @@ def test_appointment_create_requires_csrf(client: TestClient) -> None:
     )
     assert response.status_code == 403
     assert response.json()["code"] in {"ORIGIN_NOT_ALLOWED", "CSRF_TOKEN_INVALID"}
+
+
+def test_past_service_date_is_rejected_on_create(client: TestClient) -> None:
+    """연도를 잘못 입력해 일정 화면에 보이지 않는 예약이 생기는 것을 막는다."""
+
+    login = login_admin(client)
+    csrf_token = str(login["csrf_token"])
+    patient_id = _create_patient(client, csrf_token)
+    procedure = [{"procedure_code": "UPPER", "sedation_mode": "SEDATED"}]
+
+    past = _book(
+        client,
+        csrf_token=csrf_token,
+        patient_id=patient_id,
+        service_date=iso(BOOKING_DAY - timedelta(days=364)),
+        start_time="09:00",
+        procedures=procedure,
+    )
+    assert past.status_code == 422, past.text
+    assert past.json()["code"] == "SERVICE_DATE_IN_PAST"
+
+    assert _book(
+        client,
+        csrf_token=csrf_token,
+        patient_id=patient_id,
+        service_date=iso(BOOKING_DAY),
+        start_time="09:00",
+        procedures=procedure,
+    ).status_code == 201
+
+
+def test_appointment_range_covers_a_six_week_month_grid(
+    client: TestClient,
+) -> None:
+    """월간 달력은 앞뒤 주를 포함해 42일 Grid를 한 번에 조회한다."""
+
+    login_admin(client)
+    grid_start = BOOKING_DAY
+
+    within_limit = client.get(
+        "/api/appointments",
+        params={
+            "start_date": iso(grid_start),
+            "end_date": iso(grid_start + timedelta(days=41)),
+        },
+    )
+    assert within_limit.status_code == 200, within_limit.text
+
+    beyond_limit = client.get(
+        "/api/appointments",
+        params={
+            "start_date": iso(grid_start),
+            "end_date": iso(grid_start + timedelta(days=43)),
+        },
+    )
+    assert beyond_limit.status_code == 422
+    assert beyond_limit.json()["code"] == "DATE_RANGE_INVALID"

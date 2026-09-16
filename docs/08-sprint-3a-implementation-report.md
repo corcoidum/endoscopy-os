@@ -22,7 +22,7 @@
 | Method | Endpoint | 설명 |
 |---|---|---|
 | `GET` | `/api/appointments/availability` | 날짜·검사 구성별 가능 Slot |
-| `GET` | `/api/appointments` | 최대 31일 범위 예약 조회 |
+| `GET` | `/api/appointments` | 기간별 예약 조회 (상한은 3B에서 42일로 확장) |
 | `GET` | `/api/appointments/{id}` | 예약 상세 조회 |
 | `POST` | `/api/appointments` | Patient와 연결된 기본 오전 예약 생성 |
 

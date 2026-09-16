@@ -399,6 +399,7 @@ Local Python으로 Alembic을 직접 실행하려면 `DATABASE_URL` 또는
 | `GET` | `/api/users/permissions` | Permission 조회 |
 | `PUT` | `/api/users/{id}/roles` | 역할 교체 |
 | `PATCH` | `/api/users/{id}/activation` | 계정 활성화·비활성화 |
+| `POST` | `/api/users/{id}/unlock` | 로그인 실패로 잠긴 계정 해제 |
 | `GET` | `/api/patients` | 이름·차트번호·생년월일·성별 검색 |
 | `POST` | `/api/patients` | 환자 등록 |
 | `GET` | `/api/patients/chart-number-availability` | 차트번호 중복 사전 확인 |
@@ -408,8 +409,8 @@ Local Python으로 Alembic을 직접 실행하려면 `DATABASE_URL` 또는
 | `GET` | `/api/patients/{id}/age` | 기준일·방식별 나이 계산 |
 | `PATCH` | `/api/patients/{id}/activation` | 비활성화·재활성화 |
 | `GET` | `/api/appointments/availability` | 날짜별 규칙을 반영한 오전·오후 예외 가능 Slot 조회 |
-| `GET` | `/api/appointments` | 기간별 실제 예약 조회 |
-| `POST` | `/api/appointments` | 오전 예약 또는 14:00 오후 예외 예약 생성 |
+| `GET` | `/api/appointments` | 기간별 실제 예약 조회(월간 6주 Grid까지 최대 42일) |
+| `POST` | `/api/appointments` | 오전 예약 또는 14:00 오후 예외 예약 생성(지난 날짜 차단) |
 | `GET` | `/api/appointments/{id}` | 예약 상세 조회 |
 | `GET` | `/api/appointments/{id}/history` | 예약 생성·변경·취소·No-show·확인 이력 |
 | `PATCH` | `/api/appointments/{id}` | 사유와 `row_version`을 포함한 일정 변경(Revision) |

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator
 from dataclasses import dataclass
+from datetime import date, timedelta
 from uuid import UUID
 
 import pytest
@@ -32,6 +33,30 @@ from app.models import (
 
 TEST_ORIGIN = "https://clinic.test"
 ADMIN_PASSWORD = "Synthetic-Admin-Password-42!"
+
+
+def _next_weekday(target_isoweekday: int) -> date:
+    """오늘보다 뒤에 오는 가장 가까운 해당 요일을 돌려준다."""
+
+    from app.services.appointments import today_in_seoul
+
+    today = today_in_seoul()
+    ahead = (target_isoweekday - today.isoweekday()) % 7
+    return today + timedelta(days=ahead or 7)
+
+
+# 예약 API는 지난 날짜 등록을 막으므로 Test 날짜는 실행일 기준으로 계산한다.
+# 서로의 간격은 고정이라 요일별 운영규칙(월·화·목·금 / 수·토 / 일)이 항상 같다.
+BOOKING_DAY = _next_weekday(4)          # 목요일: 09:00~12:00, 위 5건·대장 3건
+NEXT_BOOKING_DAY = BOOKING_DAY + timedelta(days=1)   # 금요일: 같은 운영규칙
+CLOSED_SUNDAY = BOOKING_DAY + timedelta(days=3)      # 일요일: 기본 휴진
+SHORT_DAY = BOOKING_DAY + timedelta(days=6)          # 수요일: 09:00~11:00
+OVERRIDE_DAY = BOOKING_DAY + timedelta(days=7)       # 다음 주 목요일
+FAR_FUTURE_DAY = _next_weekday(4) + timedelta(days=364)
+
+
+def iso(value: date) -> str:
+    return value.isoformat()
 
 
 @dataclass(frozen=True)

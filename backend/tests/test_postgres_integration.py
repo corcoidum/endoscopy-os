@@ -25,7 +25,7 @@ from app.core.security import hash_password
 from app.db.session import get_db
 from app.main import create_app
 from app.models import User, UserRole
-from tests.conftest import ADMIN_PASSWORD, TEST_ORIGIN
+from tests.conftest import ADMIN_PASSWORD, BOOKING_DAY, TEST_ORIGIN, iso
 
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL")
@@ -165,7 +165,7 @@ def _create_patient(client: TestClient, csrf_token: str) -> str:
 def _booking(patient_id: str, start_time: str, procedures: list[dict[str, str]]) -> dict[str, object]:
     return {
         "patient_id": patient_id,
-        "service_date": "2026-09-10",
+        "service_date": iso(BOOKING_DAY),
         "start_time": start_time,
         "care_type": "GENERAL",
         "procedures": procedures,
@@ -208,7 +208,7 @@ def test_concurrent_bookings_for_same_slot_allow_only_one(
         assert sorted(status_codes) == [201, 409]
         listing = first.get(
             "/api/appointments",
-            params={"start_date": "2026-09-10", "end_date": "2026-09-10"},
+            params={"start_date": iso(BOOKING_DAY), "end_date": iso(BOOKING_DAY)},
         )
         assert listing.json()["total"] == 1
 
@@ -237,7 +237,7 @@ def test_times_stay_in_seoul_when_database_session_uses_utc(
 
         availability = client.get(
             "/api/appointments/availability",
-            params=[("service_date", "2026-09-10"), ("procedures", "UPPER")],
+            params=[("service_date", iso(BOOKING_DAY)), ("procedures", "UPPER")],
         )
         assert availability.json()["slots"][0]["start_time"] == "10:00:00"
 

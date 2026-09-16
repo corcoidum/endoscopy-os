@@ -30,6 +30,8 @@ SEOUL = ZoneInfo("Asia/Seoul")
 DEFAULT_RESOURCE_CODE = "ENDOSCOPY_MAIN"
 BASE_POLICY_VERSION = "BASE-2026-07-30"
 SLOT_MINUTES = 30
+# 월간 달력은 앞뒤 주를 포함해 최대 6주(42일) Grid를 그리므로 한 번에 조회할 수 있어야 한다.
+MAX_APPOINTMENT_RANGE_DAYS = 42
 AFTERNOON_START = time(14, 0)
 AFTERNOON_PATIENT_CAPACITY = 1
 ACTIVE_WORKFLOW_STATE = "BOOKED"
@@ -127,6 +129,34 @@ def to_seoul(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=SEOUL)
     return value.astimezone(SEOUL)
+
+
+def today_in_seoul(now: datetime | None = None) -> date:
+    """Server Timezone과 무관하게 서울 기준 오늘 날짜를 돌려준다."""
+
+    return (now or datetime.now(UTC)).astimezone(SEOUL).date()
+
+
+def _reject_past_service_date(
+    service_date: date, *, now: datetime | None = None
+) -> None:
+    """지난 날짜로의 예약 등록·이동을 막는다.
+
+    연도를 잘못 입력하면 일정 화면에 영원히 보이지 않는 예약이 생기고, 시작시각이
+    이미 지났으므로 곧바로 No-show로도 기록할 수 있다. 이미 지난 예약의 검사 구성
+    같은 사후 정정은 막지 않고, 새로 지난 날짜로 만드는 경우만 차단한다.
+    """
+
+    today = today_in_seoul(now)
+    if service_date < today:
+        raise ApiError(
+            status_code=422,
+            code="SERVICE_DATE_IN_PAST",
+            message=(
+                f"지난 날짜({service_date.isoformat()})로는 예약할 수 없습니다. "
+                f"오늘({today.isoformat()}) 이후 날짜를 선택해 주세요."
+            ),
+        )
 
 
 def _procedure_codes(appointment: Appointment) -> set[ProcedureCode]:
@@ -481,7 +511,9 @@ def create_appointment(
     actor_user_id: UUID,
     procedure_set: ProcedureSet | None = None,
     exception_reason: str | None = None,
+    now: datetime | None = None,
 ) -> Appointment:
+    _reject_past_service_date(service_date, now=now)
     is_afternoon = booking_bucket == "AFTERNOON_EXCEPTION"
     if is_afternoon and not (exception_reason or "").strip():
         raise ApiError(
@@ -669,6 +701,7 @@ def change_appointment(
     care_type: CareType | None = None,
     procedures: list[AppointmentProcedureInput] | None = None,
     procedure_set: ProcedureSet | None = None,
+    now: datetime | None = None,
 ) -> Appointment:
     """같은 Appointment의 Revision으로 일정을 변경한다(DEC-16)."""
 
@@ -681,6 +714,8 @@ def change_appointment(
         item.procedure_code: item.sedation_mode for item in appointment.procedures
     }
     new_date = service_date or appointment.service_date
+    if new_date != appointment.service_date:
+        _reject_past_service_date(new_date, now=now)
     new_start_time = start_time or old_start.time().replace(tzinfo=None)
     new_care_type = care_type or appointment.care_type
     new_sedation = (
@@ -899,11 +934,17 @@ def list_appointments(
     start_date: date,
     end_date: date,
 ) -> list[Appointment]:
-    if end_date < start_date or (end_date - start_date).days > 31:
+    if (
+        end_date < start_date
+        or (end_date - start_date).days > MAX_APPOINTMENT_RANGE_DAYS
+    ):
         raise ApiError(
             status_code=422,
             code="DATE_RANGE_INVALID",
-            message="조회 기간은 시작일 이후 최대 31일까지 지정할 수 있습니다.",
+            message=(
+                "조회 기간은 시작일 이후 최대 "
+                f"{MAX_APPOINTMENT_RANGE_DAYS}일까지 지정할 수 있습니다."
+            ),
         )
     return list(
         db.scalars(

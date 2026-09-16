@@ -88,15 +88,25 @@ button:disabled {
   border: 0;
 }
 
-.fluent-icon {
+/* font-size가 Icon 크기를, color가 Icon 색을 그대로 정한다.
+   기존 Icon 규칙들이 font-size와 color만 조정하므로 그대로 적용된다. */
+.app-icon {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
   font-size: 18px;
-  font-style: normal;
-  font-weight: 400;
   line-height: 1;
+}
+
+.app-icon svg {
+  width: 1em;
+  height: 1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  overflow: visible;
 }
 
 .app-shell {
@@ -135,9 +145,8 @@ button:disabled {
   box-shadow: 0 5px 12px rgb(49 85 217 / 20%);
 }
 
-.brand-mark .fluent-icon {
+.brand-mark .app-icon {
   font-size: 19px;
-  font-weight: 800;
 }
 
 .navigation-rail nav {
@@ -179,12 +188,12 @@ button:disabled {
   box-shadow: 0 6px 16px rgb(20 47 103 / 24%);
 }
 
-.navigation-rail nav button .fluent-icon,
-.navigation-rail__logout .fluent-icon {
+.navigation-rail nav button .app-icon,
+.navigation-rail__logout .app-icon {
   font-size: 21px;
 }
 
-.navigation-rail nav button span:not(.fluent-icon),
+.navigation-rail nav button span:not(.app-icon),
 .navigation-rail__logout span {
   max-width: 64px;
   overflow: hidden;
@@ -394,7 +403,7 @@ kbd {
   padding-right: 0;
 }
 
-.session-button .fluent-icon {
+.session-button .app-icon {
   color: #8190a6;
 }
 
@@ -472,7 +481,7 @@ kbd {
   box-shadow: 0 0 0 3px rgb(49 85 217 / 12%);
 }
 
-.global-search .fluent-icon {
+.global-search .app-icon {
   color: #68758b;
 }
 
@@ -719,7 +728,7 @@ kbd {
   color: #5d6b83;
 }
 
-.queue-safety-note .fluent-icon {
+.queue-safety-note .app-icon {
   color: var(--indigo);
 }
 
@@ -824,7 +833,7 @@ kbd {
   font-weight: 800;
 }
 
-.override-label .fluent-icon {
+.override-label .app-icon {
   font-size: 10px;
 }
 
@@ -1044,8 +1053,14 @@ kbd {
   place-items: center;
 }
 
-.status-mark .fluent-icon {
+.status-mark .app-icon {
   font-size: 12px;
+}
+
+/* 예약금·약제·D-1·이중확인을 Icon 모양으로 구분하므로 작은 크기에서도
+   선이 흐려지지 않도록 Stroke를 조금 더 굵게 그린다. */
+.status-mark .app-icon svg {
+  stroke-width: 2.5;
 }
 
 .status-mark--success {
@@ -1078,7 +1093,7 @@ kbd {
   font-weight: 800;
 }
 
-.closed-morning .fluent-icon {
+.closed-morning .app-icon {
   font-size: 14px;
 }
 
@@ -1101,7 +1116,7 @@ kbd {
   font-weight: 800;
 }
 
-.blocked-slot .fluent-icon {
+.blocked-slot .app-icon {
   font-size: 12px;
 }
 
@@ -1295,7 +1310,7 @@ kbd {
   font-size: 10px;
 }
 
-.check-list li > .fluent-icon {
+.check-list li > .app-icon {
   color: #64748b;
   font-size: 13px;
 }
@@ -1313,7 +1328,7 @@ kbd {
   white-space: nowrap;
 }
 
-.state-label .fluent-icon {
+.state-label .app-icon {
   font-size: 10px;
 }
 
@@ -1537,7 +1552,7 @@ kbd {
   border-radius: 6px;
 }
 
-.risk-list li > .fluent-icon {
+.risk-list li > .app-icon {
   display: grid;
   place-items: center;
   width: 34px;
@@ -1828,9 +1843,9 @@ kbd {
   line-height: 1.6;
 }
 
-.safety-banner .fluent-icon,
-.policy-callout .fluent-icon,
-.audit-callout .fluent-icon {
+.safety-banner .app-icon,
+.policy-callout .app-icon,
+.audit-callout .app-icon {
   color: var(--indigo);
 }
 
@@ -2517,7 +2532,7 @@ button.data-table__row:hover {
   font-size: 10px;
 }
 
-.statistics-scope-note > .fluent-icon {
+.statistics-scope-note > .app-icon {
   color: var(--blue);
 }
 
@@ -2773,7 +2788,7 @@ button.data-table__row:hover {
   background: #fff;
 }
 
-.admin-note .fluent-icon {
+.admin-note .app-icon {
   color: var(--indigo);
 }
 
@@ -2844,7 +2859,7 @@ button.data-table__row:hover {
   line-height: 1.5;
 }
 
-.password-policy .fluent-icon {
+.password-policy .app-icon {
   margin-top: 1px;
   color: var(--indigo);
 }
@@ -3015,7 +3030,7 @@ button.data-table__row:hover {
   line-height: 1.6;
 }
 
-.auth-status-card__content--error > .fluent-icon {
+.auth-status-card__content--error > .app-icon {
   color: var(--red);
   font-size: 30px;
 }
@@ -3220,7 +3235,7 @@ button.data-table__row:hover {
   font-weight: 700;
 }
 
-.appointment-check-grid .fluent-icon {
+.appointment-check-grid .app-icon {
   font-size: 14px;
 }
 
@@ -3289,7 +3304,7 @@ button.data-table__row:hover {
   text-align: center;
 }
 
-.appointment-detail-section--empty > .fluent-icon {
+.appointment-detail-section--empty > .app-icon {
   margin-bottom: 14px;
   color: #7b8fb3;
   font-size: 32px;
@@ -3318,7 +3333,7 @@ button.data-table__row:hover {
   line-height: 1.5;
 }
 
-.appointment-audit-note .fluent-icon {
+.appointment-audit-note .app-icon {
   color: #7489b2;
   font-size: 15px;
 }
@@ -3533,7 +3548,7 @@ button.data-table__row:hover {
   color: var(--green);
 }
 
-.wizard-nav button > span .fluent-icon {
+.wizard-nav button > span .app-icon {
   font-size: 11px;
 }
 
@@ -3644,7 +3659,7 @@ button.data-table__row:hover {
   background: #f6f8fe;
 }
 
-.identity-confirmation > .fluent-icon {
+.identity-confirmation > .app-icon {
   display: grid;
   place-items: center;
   width: 34px;
@@ -3674,7 +3689,7 @@ button.data-table__row:hover {
   background: #fafbfe;
 }
 
-.identity-confirmation--empty > .fluent-icon {
+.identity-confirmation--empty > .app-icon {
   color: #77849a;
   background: #edf1f7;
 }
@@ -3797,7 +3812,7 @@ button.data-table__row:hover {
   gap: 9px;
 }
 
-.exception-form__title > .fluent-icon {
+.exception-form__title > .app-icon {
   color: var(--violet);
 }
 
@@ -3860,7 +3875,7 @@ button.data-table__row:hover {
   background: #f8fcfa;
 }
 
-.check-card > .fluent-icon {
+.check-card > .app-icon {
   grid-row: 1 / 3;
   color: var(--green);
 }
@@ -3880,7 +3895,7 @@ button.data-table__row:hover {
   background: #fff9f3;
 }
 
-.check-card.is-warning > .fluent-icon,
+.check-card.is-warning > .app-icon,
 .check-card.is-warning strong {
   color: var(--orange);
 }
@@ -3897,7 +3912,7 @@ button.data-table__row:hover {
   text-align: center;
 }
 
-.empty-state .fluent-icon {
+.empty-state .app-icon {
   color: #8793a7;
   font-size: 24px;
 }
@@ -3916,7 +3931,7 @@ button.data-table__row:hover {
   background: #fff8f1;
 }
 
-.medication-warning .fluent-icon {
+.medication-warning .app-icon {
   color: var(--orange);
 }
 
@@ -4115,12 +4130,12 @@ button.data-table__row:hover {
   background: #fff6f6;
 }
 
-.save-readiness > .fluent-icon {
+.save-readiness > .app-icon {
   color: var(--green);
   font-size: 20px;
 }
 
-.save-readiness.is-invalid > .fluent-icon {
+.save-readiness.is-invalid > .app-icon {
   color: var(--red);
 }
 
@@ -4163,7 +4178,7 @@ button.data-table__row:hover {
   background: #fff5f5;
 }
 
-.validation-panel__result > .fluent-icon {
+.validation-panel__result > .app-icon {
   display: grid;
   place-items: center;
   width: 30px;
@@ -4173,7 +4188,7 @@ button.data-table__row:hover {
   color: var(--green);
 }
 
-.validation-panel__result.is-invalid > .fluent-icon {
+.validation-panel__result.is-invalid > .app-icon {
   background: var(--red-soft);
   color: var(--red);
 }
@@ -4212,7 +4227,7 @@ button.data-table__row:hover {
   line-height: 1.5;
 }
 
-.validation-errors .fluent-icon {
+.validation-errors .app-icon {
   font-size: 12px;
 }
 
@@ -4496,7 +4511,7 @@ button.data-table__row:hover {
   box-shadow: var(--shadow);
 }
 
-.toast .fluent-icon {
+.toast .app-icon {
   color: var(--green);
 }
 

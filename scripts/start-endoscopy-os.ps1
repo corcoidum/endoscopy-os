@@ -118,8 +118,11 @@ try {
             }
         }
         catch {
-            Start-Sleep -Seconds 3
+            # curl.exe 자체를 실행하지 못한 경우에도 아래 대기 후 다시 시도한다.
         }
+        # 아직 준비되지 않았을 때 curl.exe가 예외 없이 실패 상태코드만 돌려주므로,
+        # 재시도 간격은 try/catch 밖에서 항상 적용해야 CPU를 점유하지 않는다.
+        Start-Sleep -Seconds 3
     }
     if (-not $ready) {
         & docker compose --env-file $configurationFile ps

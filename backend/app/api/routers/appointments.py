@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.appointment_presenters import (
@@ -14,7 +15,7 @@ from app.api.appointment_presenters import (
 from app.api.dependencies import Principal, require_permission, verify_csrf
 from app.core.exceptions import ApiError
 from app.db.session import get_db
-from app.models import Appointment
+from app.models import Appointment, ScheduleAdditionalSlot
 from app.schemas.appointment import (
     AppointmentChangeRequest,
     AppointmentCreateRequest,
@@ -24,6 +25,7 @@ from app.schemas.appointment import (
     AppointmentStateChangeRequest,
     AvailableSlotResponse,
     BookingBucket,
+    BookingOrigin,
     ExceptionConfirmRequest,
     ProcedureCode,
     ProcedureSet,
@@ -57,12 +59,18 @@ def _concurrent_time_conflict() -> ApiError:
     )
 
 
-@router.get("/availability", response_model=ScheduleAvailabilityResponse)
+@router.get(
+    "/availability",
+    response_model=ScheduleAvailabilityResponse,
+    response_model_exclude_none=True,
+)
 def get_availability(
     service_date: date,
     procedures: list[ProcedureCode] = Query(min_length=1, max_length=2),
     booking_bucket: BookingBucket = "STANDARD_MORNING",
     procedure_set: ProcedureSet | None = None,
+    booking_origin: BookingOrigin = "ADVANCE",
+    additional_slot_id: UUID | None = None,
     _: Principal = Depends(appointment_reader),
     db: Session = Depends(get_db),
 ) -> ScheduleAvailabilityResponse:
@@ -79,7 +87,20 @@ def get_availability(
         procedure_codes=procedure_codes,
         procedure_set=procedure_set,
         booking_bucket=booking_bucket,
+        booking_origin=booking_origin,
+        additional_slot_id=additional_slot_id,
     )
+    additional_slots_by_start: dict[object, ScheduleAdditionalSlot] = {}
+    if booking_bucket == "SAME_DAY_EXTENSION":
+        additional_slots_by_start = {
+            item.start_time: item
+            for item in db.scalars(
+                select(ScheduleAdditionalSlot).where(
+                    ScheduleAdditionalSlot.service_date == service_date,
+                    ScheduleAdditionalSlot.status == "APPROVED",
+                )
+            ).all()
+        }
     return ScheduleAvailabilityResponse(
         service_date=service_date,
         booking_bucket=booking_bucket,
@@ -87,7 +108,20 @@ def get_availability(
         procedure_set=(procedure_set or "SET_60") if procedure_codes == {"UPPER", "COLON"} else None,
         schedule_policy_version=policy_version,
         slots=[
-            AvailableSlotResponse(start_time=start, end_time=end)
+            AvailableSlotResponse(
+                start_time=start,
+                end_time=end,
+                slot_type=(
+                    "SAME_DAY_EXTENSION"
+                    if booking_bucket == "SAME_DAY_EXTENSION"
+                    else None
+                ),
+                additional_slot_id=(
+                    additional_slots_by_start[start].id
+                    if start in additional_slots_by_start
+                    else None
+                ),
+            )
             for start, end in slots
         ],
     )
@@ -172,9 +206,15 @@ def create_appointment(
             start_time=payload.start_time,
             care_type=payload.care_type,
             booking_bucket=payload.booking_bucket,
+            booking_origin=payload.booking_origin,
             procedures=payload.procedures,
             procedure_set=payload.procedure_set,
             exception_reason=payload.exception_reason,
+            additional_slot_id=payload.additional_slot_id,
+            same_day_reason=payload.same_day_reason,
+            same_day_preparation_confirmed=payload.same_day_preparation_confirmed,
+            same_day_clinician_confirmed=payload.same_day_clinician_confirmed,
+            same_day_escort_confirmed=payload.same_day_escort_confirmed,
             actor_user_id=principal.user.id,
         )
         db.commit()

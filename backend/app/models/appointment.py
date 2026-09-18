@@ -147,12 +147,81 @@ class ScheduleDateOverride(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
 
+class ScheduleAdditionalSlot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """관리자가 당일 위내시경을 위해 승인한 일회성 30분 연장 Slot."""
+
+    __tablename__ = "schedule_additional_slots"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('APPROVED','REVOKED')",
+            name="status",
+        ),
+        CheckConstraint(
+            "start_time < end_time",
+            name="valid_interval",
+        ),
+        CheckConstraint(
+            "status <> 'REVOKED' OR "
+            "(revoked_by_user_id IS NOT NULL AND revoked_at IS NOT NULL "
+            "AND revoke_reason IS NOT NULL)",
+            name="revocation_metadata",
+        ),
+        UniqueConstraint(
+            "resource_id",
+            "service_date",
+            "start_time",
+            name="uq_schedule_additional_slots_resource_date_start",
+        ),
+    )
+
+    resource_id: Mapped[UUID] = mapped_column(
+        ForeignKey("schedule_resources.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    service_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[time] = mapped_column(Time, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="APPROVED",
+        server_default=text("'APPROVED'"),
+        index=True,
+    )
+    approved_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey(f"{IAM_SCHEMA}.users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    approved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    revoked_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(f"{IAM_SCHEMA}.users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    resource: Mapped[ScheduleResource] = relationship()
+
+
 class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "appointments"
     __table_args__ = (
         CheckConstraint(
-            "booking_bucket IN ('STANDARD_MORNING','AFTERNOON_EXCEPTION')",
+            "booking_bucket IN "
+            "('STANDARD_MORNING','AFTERNOON_EXCEPTION','SAME_DAY_EXTENSION')",
             name="booking_bucket",
+        ),
+        CheckConstraint(
+            "booking_origin IN ('ADVANCE','SAME_DAY')",
+            name="booking_origin",
         ),
         CheckConstraint(
             "care_type IN ('GENERAL','SCREENING')",
@@ -188,6 +257,18 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "procedure_set IS NULL OR procedure_set IN ('SET_60','SET_90')",
             name="procedure_set",
         ),
+        CheckConstraint(
+            "(booking_bucket = 'SAME_DAY_EXTENSION' AND additional_slot_id IS NOT NULL) "
+            "OR (booking_bucket <> 'SAME_DAY_EXTENSION' AND additional_slot_id IS NULL)",
+            name="additional_slot_matches_bucket",
+        ),
+        CheckConstraint(
+            "booking_origin <> 'SAME_DAY' OR "
+            "(same_day_reason IS NOT NULL AND same_day_preparation_confirmed = true "
+            "AND same_day_clinician_confirmed = true "
+            "AND same_day_confirmed_at IS NOT NULL)",
+            name="same_day_confirmation_metadata",
+        ),
         Index(
             "ix_appointments_service_date_state",
             "service_date",
@@ -215,6 +296,9 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     booking_bucket: Mapped[str] = mapped_column(
         String(30), nullable=False, default="STANDARD_MORNING"
     )
+    booking_origin: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="ADVANCE", server_default=text("'ADVANCE'")
+    )
     care_type: Mapped[str] = mapped_column(String(20), nullable=False)
     workflow_state: Mapped[str] = mapped_column(
         String(30), nullable=False, default="BOOKED", index=True
@@ -230,6 +314,25 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         String(80), nullable=False
     )
     procedure_set: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    additional_slot_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("schedule_additional_slots.id", ondelete="RESTRICT"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    same_day_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    same_day_preparation_confirmed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    same_day_clinician_confirmed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    same_day_escort_confirmed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    same_day_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     exception_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     exception_memo: Mapped[str | None] = mapped_column(Text, nullable=True)
     exception_registered_by_user_id: Mapped[UUID | None] = mapped_column(
@@ -260,6 +363,7 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     resource: Mapped[ScheduleResource] = relationship()
+    additional_slot: Mapped[ScheduleAdditionalSlot | None] = relationship()
     patient: Mapped["Patient"] = relationship()
     procedures: Mapped[list[AppointmentProcedure]] = relationship(
         back_populates="appointment",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from uuid import UUID
@@ -14,12 +14,14 @@ from app.models import (
     AppointmentHistoryEvent,
     AppointmentProcedure,
     Patient,
+    ScheduleAdditionalSlot,
     ScheduleDateOverride,
     ScheduleResource,
 )
 from app.schemas.appointment import (
     AppointmentProcedureInput,
     BookingBucket,
+    BookingOrigin,
     CareType,
     ProcedureCode,
     ProcedureSet,
@@ -56,6 +58,7 @@ class ScheduleContext:
     appointments: list[Appointment]
     upper_count: int
     colon_count: int
+    bucket_appointments: list[Appointment] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -247,7 +250,6 @@ def _load_context(
         .where(
             Appointment.service_date == service_date,
             Appointment.occupies_slot.is_(True),
-            Appointment.booking_bucket == booking_bucket,
         )
         .options(selectinload(Appointment.procedures))
         .order_by(Appointment.scheduled_start_at)
@@ -255,9 +257,21 @@ def _load_context(
     if exclude_appointment_id is not None:
         statement = statement.where(Appointment.id != exclude_appointment_id)
     appointments = list(db.scalars(statement).all())
-    upper_count = sum("UPPER" in _procedure_codes(item) for item in appointments)
-    colon_count = sum("COLON" in _procedure_codes(item) for item in appointments)
-    return ScheduleContext(appointments, upper_count, colon_count)
+    bucket_appointments = [
+        item for item in appointments if item.booking_bucket == booking_bucket
+    ]
+    upper_count = sum(
+        "UPPER" in _procedure_codes(item) for item in bucket_appointments
+    )
+    colon_count = sum(
+        "COLON" in _procedure_codes(item) for item in bucket_appointments
+    )
+    return ScheduleContext(
+        appointments=appointments,
+        bucket_appointments=bucket_appointments,
+        upper_count=upper_count,
+        colon_count=colon_count,
+    )
 
 
 def _overlaps(
@@ -351,7 +365,7 @@ def validate_afternoon_exception(
             message="오후 예외 예약은 14:00에 시작합니다.",
         )
     # 확인 대기 예약도 오후 Capacity를 점유한다.
-    if len(context.appointments) >= AFTERNOON_PATIENT_CAPACITY:
+    if len(context.bucket_appointments) >= AFTERNOON_PATIENT_CAPACITY:
         raise ApiError(
             status_code=409,
             code="AFTERNOON_LIMIT_EXCEEDED",
@@ -393,6 +407,7 @@ def _validate_candidate(
     booking_bucket: BookingBucket,
     procedure_codes: set[ProcedureCode],
     procedure_set: ProcedureSet | None,
+    additional_slot_id: UUID | None = None,
     exclude_appointment_id: UUID | None = None,
 ) -> tuple[int, ResolvedDayPolicy]:
     policy = resolve_day_policy(db, service_date)
@@ -412,6 +427,64 @@ def _validate_candidate(
             policy=policy,
             context=context,
         )
+    elif booking_bucket == "SAME_DAY_EXTENSION":
+        if additional_slot_id is None:
+            raise ApiError(
+                status_code=422,
+                code="ADDITIONAL_SLOT_REQUIRED",
+                message="당일 연장 예약에는 승인된 연장 슬롯이 필요합니다.",
+            )
+        if procedure_codes != {"UPPER"}:
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_UPPER_ONLY",
+                message="당일 추가 검사는 위내시경만 등록할 수 있습니다.",
+            )
+        slot = db.scalar(
+            select(ScheduleAdditionalSlot)
+            .where(ScheduleAdditionalSlot.id == additional_slot_id)
+            .with_for_update()
+        )
+        if (
+            slot is None
+            or slot.status != "APPROVED"
+            or slot.service_date != service_date
+            or slot.start_time != start_time
+        ):
+            raise ApiError(
+                status_code=409,
+                code="ADDITIONAL_SLOT_NOT_AVAILABLE",
+                message="승인된 당일 연장 슬롯을 사용할 수 없습니다.",
+            )
+        already_used = db.scalar(
+            select(Appointment.id).where(
+                Appointment.additional_slot_id == additional_slot_id,
+                Appointment.id != exclude_appointment_id,
+            )
+        )
+        if already_used is not None:
+            raise ApiError(
+                status_code=409,
+                code="ADDITIONAL_SLOT_ALREADY_USED",
+                message="이미 예약에 사용된 당일 연장 슬롯입니다.",
+            )
+        duration = procedure_duration(procedure_codes, procedure_set)
+        if _time_to_minutes(slot.end_time) - _time_to_minutes(slot.start_time) != duration:
+            raise ApiError(
+                status_code=409,
+                code="ADDITIONAL_SLOT_DURATION_INVALID",
+                message="당일 연장 슬롯은 위내시경 30분과 일치해야 합니다.",
+            )
+        start_minute = _time_to_minutes(start_time)
+        if any(
+            _overlaps(start_minute, start_minute + duration, appointment)
+            for appointment in context.appointments
+        ):
+            raise ApiError(
+                status_code=409,
+                code="TIME_CONFLICT",
+                message="선택한 시간이 기존 예약과 겹칩니다.",
+            )
     else:
         duration = validate_standard_morning(
             service_date=service_date,
@@ -430,13 +503,68 @@ def available_slots(
     service_date: date,
     procedure_codes: set[ProcedureCode],
     booking_bucket: BookingBucket,
+    booking_origin: BookingOrigin = "ADVANCE",
     procedure_set: ProcedureSet | None = None,
+    additional_slot_id: UUID | None = None,
+    now: datetime | None = None,
 ) -> tuple[int, list[tuple[time, time]], str]:
+    local_now = (now or datetime.now(UTC)).astimezone(SEOUL)
+    if booking_origin == "SAME_DAY":
+        if service_date != local_now.date():
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_DATE_REQUIRED",
+                message="당일 위내시경은 서울 기준 오늘 날짜에만 조회할 수 있습니다.",
+            )
+        if procedure_codes != {"UPPER"}:
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_UPPER_ONLY",
+                message="당일 추가 검사는 위내시경만 등록할 수 있습니다.",
+            )
     policy = resolve_day_policy(db, service_date)
     if policy.closed or policy.morning is None:
         raise _schedule_closed(service_date)
     duration = procedure_duration(procedure_codes, procedure_set)
     context = _load_context(db, service_date, booking_bucket=booking_bucket)
+
+    if booking_bucket == "SAME_DAY_EXTENSION":
+        if procedure_codes != {"UPPER"}:
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_UPPER_ONLY",
+                message="당일 추가 검사는 위내시경만 등록할 수 있습니다.",
+            )
+        statement = select(ScheduleAdditionalSlot).where(
+            ScheduleAdditionalSlot.service_date == service_date,
+            ScheduleAdditionalSlot.status == "APPROVED",
+        )
+        if additional_slot_id is not None:
+            statement = statement.where(ScheduleAdditionalSlot.id == additional_slot_id)
+        approved_slots = list(
+            db.scalars(statement.order_by(ScheduleAdditionalSlot.start_time)).all()
+        )
+        used_slot_ids = set(
+            db.scalars(
+                select(Appointment.additional_slot_id).where(
+                    Appointment.additional_slot_id.is_not(None)
+                )
+            ).all()
+        )
+        slots: list[tuple[time, time]] = []
+        for slot in approved_slots:
+            if slot.id in used_slot_ids:
+                continue
+            start_minute = _time_to_minutes(slot.start_time)
+            if (
+                datetime.combine(service_date, slot.start_time, tzinfo=SEOUL) > local_now
+                and not any(
+                _overlaps(start_minute, start_minute + duration, appointment)
+                for appointment in context.appointments
+                )
+            ):
+                slots.append((slot.start_time, slot.end_time))
+        return duration, slots, policy.policy_version
 
     if booking_bucket == "AFTERNOON_EXCEPTION":
         try:
@@ -465,6 +593,11 @@ def available_slots(
         SLOT_MINUTES,
     ):
         candidate_time = _minutes_to_time(start_minute)
+        if (
+            booking_origin == "SAME_DAY"
+            and datetime.combine(service_date, candidate_time, tzinfo=SEOUL) <= local_now
+        ):
+            continue
         try:
             validate_standard_morning(
                 service_date=service_date,
@@ -507,10 +640,16 @@ def create_appointment(
     start_time: time,
     care_type: CareType,
     booking_bucket: BookingBucket,
+    booking_origin: BookingOrigin = "ADVANCE",
     procedures: list[AppointmentProcedureInput],
     actor_user_id: UUID,
     procedure_set: ProcedureSet | None = None,
     exception_reason: str | None = None,
+    additional_slot_id: UUID | None = None,
+    same_day_reason: str | None = None,
+    same_day_preparation_confirmed: bool = False,
+    same_day_clinician_confirmed: bool = False,
+    same_day_escort_confirmed: bool = False,
     now: datetime | None = None,
 ) -> Appointment:
     _reject_past_service_date(service_date, now=now)
@@ -521,11 +660,47 @@ def create_appointment(
             code="EXCEPTION_REASON_REQUIRED",
             message="14:00 오후 예외 예약에는 사유가 필요합니다.",
         )
+    codes = {item.procedure_code for item in procedures}
+    if booking_origin == "SAME_DAY":
+        local_now = (now or datetime.now(UTC)).astimezone(SEOUL)
+        if service_date != local_now.date():
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_DATE_REQUIRED",
+                message="당일 위내시경은 서울 기준 오늘 날짜에만 등록할 수 있습니다.",
+            )
+        if codes != {"UPPER"}:
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_UPPER_ONLY",
+                message="당일 추가 검사는 위내시경만 등록할 수 있습니다.",
+            )
+        if not (same_day_reason or "").strip():
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_REASON_REQUIRED",
+                message="당일 위내시경 요청 사유가 필요합니다.",
+            )
+        if not same_day_preparation_confirmed or not same_day_clinician_confirmed:
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_CONFIRMATION_REQUIRED",
+                message="검사 준비와 의료진 시행 가능 확인이 필요합니다.",
+            )
+        is_sedated = any(
+            item.procedure_code == "UPPER" and item.sedation_mode == "SEDATED"
+            for item in procedures
+        )
+        if is_sedated and not same_day_escort_confirmed:
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_ESCORT_REQUIRED",
+                message="수면 위내시경은 귀가 동행 확인이 필요합니다.",
+            )
     patient = _require_bookable_patient(db, patient_id)
 
     resource = get_default_resource(db)
     lock_schedule_date(db, service_date)
-    codes = {item.procedure_code for item in procedures}
     duration, policy = _validate_candidate(
         db,
         service_date=service_date,
@@ -533,6 +708,7 @@ def create_appointment(
         booking_bucket=booking_bucket,
         procedure_codes=codes,
         procedure_set=procedure_set,
+        additional_slot_id=additional_slot_id,
     )
     starts_at = datetime.combine(service_date, start_time, tzinfo=SEOUL)
     ends_at = starts_at + timedelta(minutes=duration)
@@ -543,11 +719,18 @@ def create_appointment(
         scheduled_start_at=starts_at,
         scheduled_end_at=ends_at,
         booking_bucket=booking_bucket,
+        booking_origin=booking_origin,
         care_type=care_type,
         workflow_state=ACTIVE_WORKFLOW_STATE,
         occupies_slot=True,
         schedule_policy_version=policy.policy_version,
         procedure_set=(procedure_set or "SET_60") if codes == {"UPPER", "COLON"} else None,
+        additional_slot_id=additional_slot_id,
+        same_day_reason=(same_day_reason or "").strip() or None,
+        same_day_preparation_confirmed=same_day_preparation_confirmed,
+        same_day_clinician_confirmed=same_day_clinician_confirmed,
+        same_day_escort_confirmed=same_day_escort_confirmed,
+        same_day_confirmed_at=(now or datetime.now(UTC)) if booking_origin == "SAME_DAY" else None,
         exception_reason=exception_reason.strip() if is_afternoon and exception_reason else None,
         exception_registered_by_user_id=actor_user_id if is_afternoon else None,
         created_by_user_id=actor_user_id,
@@ -570,6 +753,8 @@ def create_appointment(
         reason=(
             "14:00 오후 예외 예약 등록(확인 대기)"
             if is_afternoon
+            else "당일 위내시경 등록"
+            if booking_origin == "SAME_DAY"
             else "신규 예약 등록"
         ),
         actor_user_id=actor_user_id,
@@ -593,6 +778,16 @@ def appointment_snapshot(appointment: Appointment) -> dict[str, object]:
         "end_time": to_seoul(appointment.scheduled_end_at).strftime("%H:%M"),
         "care_type": appointment.care_type,
         "booking_bucket": appointment.booking_bucket,
+        "booking_origin": appointment.booking_origin,
+        "additional_slot_id": (
+            str(appointment.additional_slot_id)
+            if appointment.additional_slot_id is not None
+            else None
+        ),
+        "same_day_reason": appointment.same_day_reason,
+        "same_day_preparation_confirmed": appointment.same_day_preparation_confirmed,
+        "same_day_clinician_confirmed": appointment.same_day_clinician_confirmed,
+        "same_day_escort_confirmed": appointment.same_day_escort_confirmed,
         "workflow_state": appointment.workflow_state,
         "exception_status": exception_status(appointment),
         "procedures": [
@@ -724,6 +919,28 @@ def change_appointment(
         else dict(old_sedation)
     )
     new_codes: set[ProcedureCode] = set(new_sedation)  # type: ignore[arg-type]
+    if appointment.booking_origin == "SAME_DAY":
+        if new_date != datetime.now(UTC).astimezone(SEOUL).date():
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_DATE_REQUIRED",
+                message="당일 위내시경 예약은 다른 날짜로 변경할 수 없습니다.",
+            )
+        if new_codes != {"UPPER"}:
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_UPPER_ONLY",
+                message="당일 추가 검사는 위내시경만 유지할 수 있습니다.",
+            )
+        if (
+            new_sedation.get("UPPER") == "SEDATED"
+            and not appointment.same_day_escort_confirmed
+        ):
+            raise ApiError(
+                status_code=422,
+                code="SAME_DAY_ESCORT_REQUIRED",
+                message="수면 위내시경 변경 전 귀가 동행 확인이 필요합니다.",
+            )
     if new_codes == {"UPPER", "COLON"}:
         new_procedure_set: ProcedureSet | None = (
             procedure_set
@@ -765,6 +982,7 @@ def change_appointment(
         booking_bucket=appointment.booking_bucket,  # type: ignore[arg-type]
         procedure_codes=new_codes,
         procedure_set=new_procedure_set,
+        additional_slot_id=appointment.additional_slot_id,
         exclude_appointment_id=appointment.id,
     )
 

@@ -44,6 +44,13 @@ def present_appointment(appointment: Appointment) -> AppointmentResponse:
         procedure_set=appointment.procedure_set,  # type: ignore[arg-type]
         care_type=appointment.care_type,  # type: ignore[arg-type]
         booking_bucket=appointment.booking_bucket,  # type: ignore[arg-type]
+        booking_origin=appointment.booking_origin,  # type: ignore[arg-type]
+        additional_slot_id=appointment.additional_slot_id,
+        same_day_reason=appointment.same_day_reason,
+        same_day_preparation_confirmed=appointment.same_day_preparation_confirmed,
+        same_day_clinician_confirmed=appointment.same_day_clinician_confirmed,
+        same_day_escort_confirmed=appointment.same_day_escort_confirmed,
+        same_day_confirmed_at=appointment.same_day_confirmed_at,
         workflow_state=appointment.workflow_state,  # type: ignore[arg-type]
         exception_status=exception_status(appointment),  # type: ignore[arg-type]
         exception_reason=appointment.exception_reason,

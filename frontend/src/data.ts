@@ -4,6 +4,12 @@ export type ProcedureKind = "위" | "대장" | "위·대장";
 export type ProcedureSet = "세트60" | "세트90";
 export type CheckState = "완료" | "대기" | "불필요";
 export type DepositPaymentMethod = "현금" | "카드";
+
+export interface MedicationDiscontinuation {
+  medicationName: string;
+  discontinuationDays: number;
+  doctorConfirmed: boolean;
+}
 export type AppointmentStatus =
   | "예약"
   | "D-1 확인 필요"
@@ -39,6 +45,7 @@ export interface Appointment {
   additionalExaminations?: string[];
   depositPaymentMethod?: DepositPaymentMethod;
   depositAmount?: 10000 | 20000 | 30000;
+  depositUnpaidConfirmed?: boolean;
   generalScreening?: "미확인" | "실시" | "미실시";
   colorectalScreening?: "미확인" | "실시" | "미실시";
   colorectalScreeningResult?: "미확인" | "음성" | "양성";
@@ -47,10 +54,20 @@ export interface Appointment {
   medicationDiscontinuationName?: string;
   medicationDiscontinuationDays?: number;
   medicationDoctorConfirmed?: boolean;
+  medicationListMemo?: string;
+  medicationDiscontinuations?: MedicationDiscontinuation[];
   afternoonException?: boolean;
+  sameDay?: boolean;
+  sameDayExtension?: boolean;
+  additionalSlotId?: string;
+  sameDayReason?: string;
+  sameDayPreparationConfirmed?: boolean;
+  sameDayClinicianConfirmed?: boolean;
+  sameDayEscortConfirmed?: boolean;
   exceptionReason?: string;
   exceptionConfirmedBy?: string;
   memo?: string;
+  backendManaged?: boolean;
 }
 
 export interface PathologyCase {

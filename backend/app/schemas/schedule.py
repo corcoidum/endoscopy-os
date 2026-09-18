@@ -82,5 +82,32 @@ class DayPolicyResponse(BaseModel):
     schedule_policy_version: str
 
 
+class AdditionalSlotCreateRequest(BaseModel):
+    service_date: date
+    start_time: time
+    reason: ReasonText
+
+
+class AdditionalSlotRevokeRequest(BaseModel):
+    reason: ReasonText
+
+
+class AdditionalSlotResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    service_date: date
+    start_time: time
+    end_time: time
+    reason: str
+    status: Literal["APPROVED", "REVOKED"]
+    approved_by_user_id: UUID
+    approved_at: datetime
+    revoked_by_user_id: UUID | None
+    revoked_at: datetime | None
+    revoke_reason: str | None
+    created_at: datetime
+
+
 class DayPolicyListResponse(BaseModel):
     items: list[DayPolicyResponse]

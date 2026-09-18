@@ -7,7 +7,19 @@ import type {
   Sex,
 } from "./data";
 
-export type CapacityBucket = "STANDARD_MORNING" | "AFTERNOON_EXCEPTION";
+export type CapacityBucket =
+  | "STANDARD_MORNING"
+  | "AFTERNOON_EXCEPTION"
+  | "SAME_DAY_EXTENSION";
+
+export interface MedicationDiscontinuationDraft {
+  id: string;
+  medicationName: string;
+  discontinuationDays: string;
+  doctorConfirmed: boolean;
+}
+
+export type DepositSelection = "UNSELECTED" | "PAID" | "UNPAID";
 
 export interface BookingDraft {
   id?: string;
@@ -23,14 +35,19 @@ export interface BookingDraft {
   date: string;
   start: string;
   bucket: CapacityBucket;
+  bookingOrigin: "ADVANCE" | "SAME_DAY";
+  additionalSlotId?: string;
+  sameDayReason: string;
+  sameDayPreparationConfirmed: boolean;
+  sameDayClinicianConfirmed: boolean;
+  sameDayEscortConfirmed: boolean;
   screeningCopay: "없음" | "10%";
   bowelPreparation: string;
   medicationsChecked: boolean;
-  medicationDiscontinuationName: string;
-  medicationDiscontinuationDays: string;
-  medicationDoctorConfirmed: boolean;
+  medicationListMemo: string;
+  medicationDiscontinuations: MedicationDiscontinuationDraft[];
   additionalExaminations: string[];
-  depositPaid: boolean;
+  depositStatus: DepositSelection;
   depositPaymentMethod: DepositPaymentMethod | "미확인";
   depositAmount?: 10000 | 20000 | 30000;
   additionalPrepayment: boolean;
@@ -39,12 +56,60 @@ export interface BookingDraft {
   exceptionMemo: string;
 }
 
+export function isDepositSelectionComplete(
+  draft: Pick<BookingDraft, "depositStatus" | "depositAmount" | "depositPaymentMethod">,
+): boolean {
+  if (draft.depositStatus === "UNPAID") return true;
+  return (
+    draft.depositStatus === "PAID" &&
+    Boolean(draft.depositAmount) &&
+    draft.depositPaymentMethod !== "미확인"
+  );
+}
+
 export interface ValidationResult {
   valid: boolean;
   duration: 30 | 60 | 90;
   end: string;
   errors: string[];
   alternatives: string[];
+}
+
+export type ScheduleValidation = Omit<ValidationResult, "alternatives">;
+
+export interface DayAvailability {
+  date: string;
+  closed: boolean;
+  shortMorning: boolean;
+  availableStarts: string[];
+  upperCount: number;
+  colonCount: number;
+  afternoonBooked: boolean;
+}
+
+export const MORNING_UPPER_CAPACITY = 5;
+export const MORNING_COLON_CAPACITY = 3;
+
+export function formatBirthDateInput(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+}
+
+export function isValidBirthDate(value: string, referenceDate: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, year, month, day] = match;
+  const parsed = new Date(`${value}T00:00:00`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.getFullYear() === Number(year) &&
+    parsed.getMonth() + 1 === Number(month) &&
+    parsed.getDate() === Number(day) &&
+    value >= "1900-01-01" &&
+    value <= referenceDate
+  );
 }
 
 const DATE_BLOCKS: Record<string, { start: string; end: string; reason: string }[]> = {
@@ -95,6 +160,10 @@ export function isShortMorning(date: string): boolean {
   return day === 3 || day === 6;
 }
 
+export function isClosedDay(date: string): boolean {
+  return new Date(`${date}T00:00:00`).getDay() === 0;
+}
+
 export function standardStartsFor(date: string): string[] {
   const end = isShortMorning(date) ? 11 * 60 : 12 * 60;
   const starts: string[] = [];
@@ -104,47 +173,50 @@ export function standardStartsFor(date: string): string[] {
   return starts;
 }
 
-export function validateBooking(
+function includesUpper(procedure: ProcedureKind) {
+  return procedure === "위" || procedure === "위·대장";
+}
+
+function includesColon(procedure: ProcedureKind) {
+  return procedure === "대장" || procedure === "위·대장";
+}
+
+function sameDayAppointments(
+  appointments: Appointment[],
+  date: string,
+  excludeAppointmentId?: string,
+) {
+  return appointments.filter(
+    (appointment) =>
+      appointment.date === date && appointment.id !== excludeAppointmentId,
+  );
+}
+
+/** 환자·복용약·예외 사유 같은 입력 항목은 제외하고 일정 규칙만 검증합니다. */
+export function validateSchedule(
   draft: BookingDraft,
   appointments: Appointment[],
   excludeAppointmentId?: string,
-  calculateAlternatives = true,
-): ValidationResult {
+): ScheduleValidation {
   const duration = procedureDuration(draft.procedure, draft.procedureSet);
   const start = toMinutes(draft.start);
   const end = start + duration;
   const errors: string[] = [];
-  const sameDay = appointments.filter(
-    (appointment) =>
-      appointment.date === draft.date && appointment.id !== excludeAppointmentId,
-  );
+  const sameDay = sameDayAppointments(appointments, draft.date, excludeAppointmentId);
 
-  if (
-    !draft.name.trim() ||
-    !draft.chartNumber.trim() ||
-    !draft.dateOfBirth ||
-    !draft.sex
-  ) {
-    errors.push("환자 이름·차트번호·생년월일·성별을 모두 확인해 주세요.");
-  }
-
-  const medicationName = draft.medicationDiscontinuationName.trim();
-  const medicationDays = draft.medicationDiscontinuationDays.trim();
-  if (medicationName || medicationDays) {
-    if (!medicationName || !medicationDays) {
-      errors.push("중단 검토 약품명과 의사가 결정한 중단 일수를 함께 입력해 주세요.");
-    } else if (!/^\d+$/.test(medicationDays)) {
-      errors.push("약제 중단 일수는 0 이상의 정수로 입력해 주세요.");
-    } else if (!draft.medicationDoctorConfirmed) {
-      errors.push("담당 의사의 약제 확인이 필요합니다.");
-    }
+  if (isClosedDay(draft.date)) {
+    errors.push("일요일은 휴진일이라 예약할 수 없습니다.");
   }
 
   if (start % 30 !== 0) {
     errors.push("예약 시간은 30분 단위로 선택해야 합니다.");
   }
 
-  if (draft.bucket === "AFTERNOON_EXCEPTION") {
+  if (draft.bucket === "SAME_DAY_EXTENSION") {
+    if (draft.bookingOrigin !== "SAME_DAY" || draft.procedure !== "위") {
+      errors.push("당일 연장 슬롯은 위내시경에만 사용할 수 있습니다.");
+    }
+  } else if (draft.bucket === "AFTERNOON_EXCEPTION") {
     if (draft.start !== "14:00") {
       errors.push("오후 예외 예약은 14:00만 선택할 수 있습니다.");
     }
@@ -154,14 +226,6 @@ export function validateBooking(
     );
     if (afternoonAlreadyBooked) {
       errors.push("이 날짜의 14:00 오후 예외 예약은 이미 1명이 등록되어 있습니다.");
-    }
-
-    if (
-      !draft.exceptionReason.trim() ||
-      !draft.exceptionConfirmedBy.trim() ||
-      !draft.exceptionMemo.trim()
-    ) {
-      errors.push("오후 예외 사유·확인자·관련 메모를 모두 입력해 주세요.");
     }
   } else {
     const operatingEnd = isShortMorning(draft.date) ? 11 * 60 : 12 * 60;
@@ -186,22 +250,18 @@ export function validateBooking(
         (appointment) => !appointment.afternoonException,
       );
       const upperCount =
-        standardAppointments.filter(
-          (appointment) =>
-            appointment.procedure === "위" ||
-            appointment.procedure === "위·대장",
-        ).length +
-        (draft.procedure === "위" || draft.procedure === "위·대장" ? 1 : 0);
+        standardAppointments.filter((appointment) => includesUpper(appointment.procedure))
+          .length + (includesUpper(draft.procedure) ? 1 : 0);
       const colonCount =
-        standardAppointments.filter(
-          (appointment) =>
-            appointment.procedure === "대장" ||
-            appointment.procedure === "위·대장",
-        ).length +
-        (draft.procedure === "대장" || draft.procedure === "위·대장" ? 1 : 0);
+        standardAppointments.filter((appointment) => includesColon(appointment.procedure))
+          .length + (includesColon(draft.procedure) ? 1 : 0);
 
-      if (upperCount > 5) errors.push("오전 위내시경 일반 수용량 5건을 초과합니다.");
-      if (colonCount > 3) errors.push("오전 대장내시경 일반 수용량 3건을 초과합니다.");
+      if (upperCount > MORNING_UPPER_CAPACITY) {
+        errors.push(`오전 위내시경 일반 수용량 ${MORNING_UPPER_CAPACITY}건을 초과합니다.`);
+      }
+      if (colonCount > MORNING_COLON_CAPACITY) {
+        errors.push(`오전 대장내시경 일반 수용량 ${MORNING_COLON_CAPACITY}건을 초과합니다.`);
+      }
     }
   }
 
@@ -219,32 +279,109 @@ export function validateBooking(
     );
   }
 
-  let alternatives: string[] = [];
-  if (calculateAlternatives && errors.length > 0) {
-    const candidateStarts =
-      draft.bucket === "AFTERNOON_EXCEPTION"
-        ? ["14:00"]
-        : standardStartsFor(draft.date);
-    alternatives = candidateStarts
-      .filter((candidateStart) => {
-        const candidate = {
-          ...draft,
-          start: candidateStart,
-        };
-        return validateBooking(
-          candidate,
-          appointments,
-          excludeAppointmentId,
-          false,
-        ).valid;
-      })
-      .slice(0, 3);
-  }
-
   return {
     valid: errors.length === 0,
     duration,
     end: fromMinutes(end),
+    errors,
+  };
+}
+
+/** 선택한 검사 종류·세트·예약 구분 기준으로 하루의 예약 가능 시간을 계산합니다. */
+export function dayAvailability(
+  draft: BookingDraft,
+  appointments: Appointment[],
+  date: string,
+  excludeAppointmentId?: string,
+): DayAvailability {
+  const closed = isClosedDay(date);
+  const candidateStarts =
+    draft.bucket === "AFTERNOON_EXCEPTION" ? ["14:00"] : standardStartsFor(date);
+  const availableStarts = closed
+    ? []
+    : candidateStarts.filter(
+        (start) =>
+          validateSchedule({ ...draft, date, start }, appointments, excludeAppointmentId)
+            .valid,
+      );
+  const sameDay = sameDayAppointments(appointments, date, excludeAppointmentId);
+  const standardAppointments = sameDay.filter(
+    (appointment) => !appointment.afternoonException,
+  );
+
+  return {
+    date,
+    closed,
+    shortMorning: isShortMorning(date),
+    availableStarts,
+    upperCount: standardAppointments.filter((appointment) =>
+      includesUpper(appointment.procedure),
+    ).length,
+    colonCount: standardAppointments.filter((appointment) =>
+      includesColon(appointment.procedure),
+    ).length,
+    afternoonBooked: sameDay.some((appointment) => appointment.afternoonException),
+  };
+}
+
+export function validateBooking(
+  draft: BookingDraft,
+  appointments: Appointment[],
+  excludeAppointmentId?: string,
+  calculateAlternatives = true,
+): ValidationResult {
+  const schedule = validateSchedule(draft, appointments, excludeAppointmentId);
+  const errors: string[] = [];
+
+  if (!draft.name.trim() || !draft.chartNumber.trim() || !draft.dateOfBirth || !draft.sex) {
+    errors.push("환자 이름·차트번호·생년월일·성별을 모두 확인해 주세요.");
+  } else if (!isValidBirthDate(draft.dateOfBirth, draft.date)) {
+    errors.push("생년월일을 YYYY-MM-DD 형식의 실제 날짜로 입력해 주세요.");
+  }
+
+  draft.medicationDiscontinuations.forEach((medication, index) => {
+    const medicationName = medication.medicationName.trim();
+    const medicationDays = medication.discontinuationDays.trim();
+    const hasAnyValue = medicationName || medicationDays || medication.doctorConfirmed;
+    if (!hasAnyValue) return;
+    if (!medicationName || !medicationDays) {
+      errors.push(
+        `중단 검토 약 ${index + 1}: 약품명과 의사가 결정한 중단 일수를 함께 입력해 주세요.`,
+      );
+    } else if (!/^\d+$/.test(medicationDays)) {
+      errors.push(
+        `중단 검토 약 ${index + 1}: 중단 일수는 0 이상의 정수로 입력해 주세요.`,
+      );
+    } else if (!medication.doctorConfirmed) {
+      errors.push(`중단 검토 약 ${index + 1}: 담당 의사의 확인이 필요합니다.`);
+    }
+  });
+
+  errors.push(...schedule.errors);
+
+  if (
+    draft.bucket === "AFTERNOON_EXCEPTION" &&
+    (!draft.exceptionReason.trim() ||
+      !draft.exceptionConfirmedBy.trim() ||
+      !draft.exceptionMemo.trim())
+  ) {
+    errors.push("오후 예외 사유·확인자·관련 메모를 모두 입력해 주세요.");
+  }
+
+  let alternatives: string[] = [];
+  if (calculateAlternatives && !schedule.valid) {
+    alternatives = dayAvailability(
+      draft,
+      appointments,
+      draft.date,
+      excludeAppointmentId,
+    ).availableStarts.slice(0, 3);
+  }
+
+  return {
+    valid: errors.length === 0,
+    duration: schedule.duration,
+    end: schedule.end,
     errors,
     alternatives,
   };

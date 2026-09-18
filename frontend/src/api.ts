@@ -37,25 +37,36 @@ const SESSION_EXPIRES_AT_HEADER = "X-Session-Expires-At";
 
 export class ApiError extends Error {
   status: number;
+  code: string | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code: string | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
-function extractErrorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object") return fallback;
+function extractError(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object") {
+    return { message: fallback, code: null };
+  }
 
   const candidate = payload as {
     detail?: unknown;
     message?: unknown;
+    code?: unknown;
   };
-  if (typeof candidate.detail === "string") return candidate.detail;
-  if (typeof candidate.message === "string") return candidate.message;
-
-  return fallback;
+  const message =
+    typeof candidate.detail === "string"
+      ? candidate.detail
+      : typeof candidate.message === "string"
+        ? candidate.message
+        : fallback;
+  return {
+    message,
+    code: typeof candidate.code === "string" ? candidate.code : null,
+  };
 }
 
 export async function apiRequest<ResponseBody>(
@@ -117,10 +128,8 @@ export async function apiRequest<ResponseBody>(
         : response.status === 403
           ? "이 작업을 수행할 권한이 없습니다."
           : "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(payload, fallback),
-    );
+    const error = extractError(payload, fallback);
+    throw new ApiError(response.status, error.message, error.code);
   }
 
   return payload as ResponseBody;

@@ -218,6 +218,40 @@ services:
       - no-new-privileges:true
     logging: *service-logging
 
+  seed-appointments:
+    profiles:
+      - tools
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: clinic-endoscopy/backend:${APP_VERSION:-local}
+    restart: "no"
+    command:
+      - python
+      - -m
+      - app.cli.seed_appointments
+      - --start-date
+      - "2026-09-01"
+      - --end-date
+      - "2026-09-19"
+    environment:
+      <<: *backend-common-environment
+      POSTGRES_USER: ${POSTGRES_APP_USER:?POSTGRES_APP_USER를 .env에 설정하세요}
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD를 .env에 설정하세요}
+    depends_on:
+      seed-patients:
+        condition: service_completed_successfully
+    networks:
+      - database
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *service-logging
+
   frontend-build:
     build:
       context: ./frontend

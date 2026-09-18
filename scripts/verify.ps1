@@ -29,6 +29,9 @@ try {
     & npm.cmd run typecheck
     if ($LASTEXITCODE -ne 0) { throw "Frontend typecheck가 실패했습니다." }
 
+    & npm.cmd test
+    if ($LASTEXITCODE -ne 0) { throw "Frontend API 연결 test가 실패했습니다." }
+
     & npm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw "Frontend build가 실패했습니다." }
 

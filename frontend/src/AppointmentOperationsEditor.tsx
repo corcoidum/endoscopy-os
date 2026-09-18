@@ -27,7 +27,7 @@ export function AppointmentOperationsEditor({ appointment, mode, canEdit, onSave
           setFeedback("수납 완료 시 예약금액과 수납 방법을 모두 선택해 주세요.");
           return;
         }
-        onSave({ deposit: paid ? "완료" : "대기", depositAmount: amount,
+        onSave({ deposit: paid ? "완료" : "대기", depositUnpaidConfirmed: paid ? undefined : true, depositAmount: amount,
           depositPaymentMethod: paid && method !== "미확인" ? method : undefined });
       } else {
         if (colorectal === "실시" && result === "양성" && !memo.trim()) {

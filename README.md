@@ -306,6 +306,20 @@ finally {
 docker compose --profile tools run --rm seed-patients
 ```
 
+주간표 테스트용 합성 예약은 합성 환자를 확인한 뒤 2026-09-01부터
+2026-09-19까지 생성합니다. 같은 명령을 다시 실행해도 동일 환자·날짜·시각의
+예약은 중복 생성하지 않으며, 기존 예약과 충돌하는 Seed는 덮어쓰지 않고
+건너뜁니다.
+
+```powershell
+docker compose --profile tools run --rm seed-appointments
+```
+
+기본 범위가 아닌 최대 31일의 테스트 구간은 Backend 컨테이너에서
+`python -m app.cli.seed_appointments --start-date YYYY-MM-DD --end-date YYYY-MM-DD`
+형식으로 지정할 수 있습니다. 운영 환자나 운영 예약 초기입력에는 사용하지
+않습니다.
+
 ### 5. 내부 CA 공개 인증서 배포
 
 Caddy 최초 기동 후 공개 Root 인증서를 복사합니다.
@@ -363,6 +377,7 @@ Test는 합성 계정과 Memory Database만 사용합니다.
 Push-Location frontend
 npm ci
 npm run typecheck
+npm test
 npm run build
 Pop-Location
 ```

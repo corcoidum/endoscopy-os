@@ -5,6 +5,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { calendarQueries } from "./calendarQueries";
 import {
   calculateAge,
   formatAgeSex,
@@ -16,13 +17,19 @@ import {
   type PathologyCase,
 } from "./data";
 import {
+  dayAvailability,
+  formatBirthDateInput,
   fromMinutes,
-  getDateBlocks,
+  isDepositSelectionComplete,
   isShortMorning,
+  isValidBirthDate,
+  MORNING_COLON_CAPACITY,
+  MORNING_UPPER_CAPACITY,
   procedureDuration,
   standardStartsFor,
   toMinutes,
   validateBooking,
+  validateSchedule,
   type BookingDraft,
   type ValidationResult,
 } from "./scheduler";
@@ -34,6 +41,13 @@ import type {
   ChangePasswordRequest,
   LoginRequest,
 } from "./api";
+import { ApiError } from "./api";
+import {
+  appointmentsApi,
+  bookingCreateErrorMessage,
+  mapAppointmentResponse,
+  type ScheduleAvailabilityResponse,
+} from "./appointmentsApi";
 
 type ViewId =
   | "today"
@@ -268,7 +282,7 @@ const ROLE_LABELS: Record<string, string> = {
   READ_ONLY: "조회 전용",
 };
 
-const REFERENCE_TODAY = "2026-07-30";
+const REFERENCE_TODAY = "2026-09-18";
 const KOREAN_WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
 
 function parseIsoDate(value: string): Date {
@@ -278,6 +292,17 @@ function parseIsoDate(value: string): Date {
 
 function toIsoDate(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function seoulTodayIso(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
 }
 
 function addCalendarDays(value: string, amount: number): string {
@@ -317,6 +342,25 @@ function weekDaysFor(value: string) {
       today: iso === REFERENCE_TODAY,
     };
   });
+}
+
+function monthGridDays(value: string) {
+  const visibleMonth = parseIsoDate(value);
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const leadingDays = (new Date(year, month, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cellCount = Math.ceil((leadingDays + daysInMonth) / 7) * 7;
+  const days = Array.from({ length: cellCount }, (_, index) => {
+    const date = new Date(year, month, 1 + index - leadingDays);
+    return {
+      iso: toIsoDate(date),
+      day: date.getDate(),
+      currentMonth: date.getMonth() === month,
+      sunday: date.getDay() === 0,
+    };
+  });
+  return { year, month, days };
 }
 
 function koreanDateLabel(value: string): string {
@@ -923,6 +967,8 @@ function AppointmentCard({
       className={`appointment-card appointment-card--${procedureTone(
         appointment.procedure,
       )} ${isAfternoon ? "appointment-card--afternoon" : ""} ${
+        appointment.sameDay ? "appointment-card--same-day" : ""
+      } ${
         selected ? "is-selected" : ""
       }`}
       style={style}
@@ -937,6 +983,8 @@ function AppointmentCard({
           <span className="mini-tag">{appointment.procedureSet ?? `세트${appointment.duration}`}</span>
         )}
         {isAfternoon && <span className="mini-tag">예외</span>}
+        {appointment.sameDay && <span className="mini-tag">당일추가</span>}
+        {appointment.sameDayExtension && <span className="mini-tag">연장슬롯</span>}
       </span>
       <span className="appointment-card__identity">
         <strong title={appointment.name}>{appointment.name}</strong>
@@ -961,7 +1009,10 @@ function AppointmentCard({
 }
 
 function TimeAxis() {
-  const morningTimes = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30"];
+  const morningTimes = [
+    "09:00", "09:30", "10:00", "10:30", "11:00",
+    "11:30", "12:00", "12:30", "13:00", "13:30",
+  ];
   return (
     <div className="time-axis" aria-hidden="true">
       {morningTimes.map((time, index) => (
@@ -982,29 +1033,39 @@ function WeekSchedule({
   appointments,
   selectedId,
   onSelect,
-  search,
   calendarDate,
   onSelectDate,
+  loading,
+  loadError,
+  onRetry,
 }: {
   appointments: Appointment[];
   selectedId?: string;
   onSelect: (id: string) => void;
-  search: string;
   calendarDate: string;
   onSelectDate: (date: string) => void;
+  loading: boolean;
+  loadError: string;
+  onRetry: () => void;
 }) {
   const weekDays = weekDaysFor(calendarDate);
-  const normalizedSearch = search.trim().toLowerCase();
-  const filteredAppointments = normalizedSearch
-    ? appointments.filter(
-        (appointment) =>
-          appointment.name.toLowerCase().includes(normalizedSearch) ||
-          appointment.chartNumber.toLowerCase().includes(normalizedSearch),
-      )
-    : appointments;
+  const filteredAppointments = appointments;
 
   return (
     <section className="schedule-panel" aria-label="월요일부터 토요일 주간 일정">
+      <div className={`backend-boundary ${loadError ? "is-error" : ""}`} role="status">
+        <span>
+          <strong>Backend 일정</strong>
+          {loading
+            ? "주간 예약을 불러오는 중입니다."
+            : loadError || "로그인 권한으로 조회한 저장 예약입니다."}
+        </span>
+        {loadError && (
+          <button type="button" className="secondary-button" onClick={onRetry}>
+            다시 조회
+          </button>
+        )}
+      </div>
       <div className="print-title">
         <strong>내시경 주간 일정</strong>
         <span>{startOfCalendarWeek(calendarDate)} ~ {addCalendarDays(startOfCalendarWeek(calendarDate), 5)} · 원내업무용 · 사용 후 파쇄</span>
@@ -1041,12 +1102,6 @@ function WeekSchedule({
               <small>
                 환자 {dayAppointments.length} · 위 {upperCount} · 대장 {colonCount}
               </small>
-              {getDateBlocks(day.date).length > 0 && (
-                <span className="override-label">
-                  <Icon name="warning" />
-                  10:30 점검 차단
-                </span>
-              )}
             </button>
           );
         })}
@@ -1061,7 +1116,7 @@ function WeekSchedule({
               key={day.date}
             >
               <div className="slot-lines" aria-hidden="true">
-                {Array.from({ length: 7 }, (_, index) => (
+                {Array.from({ length: 11 }, (_, index) => (
                   <span
                     style={{ "--slot-index": index } as CSSProperties}
                     key={index}
@@ -1074,12 +1129,6 @@ function WeekSchedule({
                   <span>11:00 오전 운영 종료</span>
                 </div>
               )}
-              {getDateBlocks(day.date).map((block) => (
-                <div className="blocked-slot" key={`${day.date}-${block.start}`}>
-                  <Icon name="warning" />
-                  <span>점검 차단</span>
-                </div>
-              ))}
               {dayAppointments.map((appointment) => (
                 <AppointmentCard
                   key={appointment.id}
@@ -1088,13 +1137,6 @@ function WeekSchedule({
                   onSelect={() => onSelect(appointment.id)}
                 />
               ))}
-              {day.date === "2026-08-01" && (
-                <div className="validation-example" aria-label="수토 검증 예시">
-                  <strong>10:30 대장 선택 불가</strong>
-                  <span>종료 11:30 · 운영시간 초과</span>
-                  <small>가장 빠른 대안: 14:00 예외</small>
-                </div>
-              )}
             </div>
           );
         })}
@@ -1442,26 +1484,7 @@ function MonthView({
   selectedDate: string;
   onSelectDate: (date: string) => void;
 }) {
-  const visibleMonth = parseIsoDate(calendarDate);
-  const year = visibleMonth.getFullYear();
-  const month = visibleMonth.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const leadingDays = (firstDay.getDay() + 6) % 7;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cellCount = Math.ceil((leadingDays + daysInMonth) / 7) * 7;
-  const days = Array.from({ length: cellCount }, (_, index) => {
-    const date = new Date(year, month, 1 + index - leadingDays);
-    const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-      2,
-      "0",
-    )}-${String(date.getDate()).padStart(2, "0")}`;
-    return {
-      iso,
-      day: date.getDate(),
-      currentMonth: date.getMonth() === month,
-      sunday: date.getDay() === 0,
-    };
-  });
+  const { year, month, days } = monthGridDays(calendarDate);
 
   return (
     <section className="view-surface">
@@ -1515,7 +1538,7 @@ function MonthView({
                   </div>
                 </>
               ) : (
-                <small>예약 가능</small>
+                <small>예약 없음</small>
               )}
             </button>
           );
@@ -2095,7 +2118,10 @@ function AdminView() {
   );
 }
 
-function draftFromAppointment(appointment?: Appointment): BookingDraft {
+function draftFromAppointment(
+  appointment?: Appointment,
+  bookingOrigin: BookingDraft["bookingOrigin"] = "ADVANCE",
+): BookingDraft {
   if (appointment) {
     return {
       id: appointment.id,
@@ -2113,18 +2139,42 @@ function draftFromAppointment(appointment?: Appointment): BookingDraft {
       start: appointment.start,
       bucket: appointment.afternoonException
         ? "AFTERNOON_EXCEPTION"
+        : appointment.sameDayExtension
+          ? "SAME_DAY_EXTENSION"
         : "STANDARD_MORNING",
+      bookingOrigin: appointment.sameDay ? "SAME_DAY" : "ADVANCE",
+      additionalSlotId: appointment.additionalSlotId,
+      sameDayReason: appointment.sameDayReason ?? "",
+      sameDayPreparationConfirmed: appointment.sameDayPreparationConfirmed ?? false,
+      sameDayClinicianConfirmed: appointment.sameDayClinicianConfirmed ?? false,
+      sameDayEscortConfirmed: appointment.sameDayEscortConfirmed ?? false,
       screeningCopay: appointment.screeningCopay ?? "없음",
       bowelPreparation: appointment.bowelPreparation ?? "원프렙",
       medicationsChecked: appointment.medication === "완료",
-      medicationDiscontinuationName:
-        appointment.medicationDiscontinuationName ?? "",
-      medicationDiscontinuationDays:
-        appointment.medicationDiscontinuationDays?.toString() ?? "",
-      medicationDoctorConfirmed:
-        appointment.medicationDoctorConfirmed ?? false,
+      medicationListMemo: appointment.medicationListMemo ?? "",
+      medicationDiscontinuations:
+        appointment.medicationDiscontinuations?.map((medication, index) => ({
+          id: `existing-medication-${index + 1}`,
+          medicationName: medication.medicationName,
+          discontinuationDays: medication.discontinuationDays.toString(),
+          doctorConfirmed: medication.doctorConfirmed,
+        })) ??
+        [
+          {
+            id: "existing-medication-1",
+            medicationName: appointment.medicationDiscontinuationName ?? "",
+            discontinuationDays:
+              appointment.medicationDiscontinuationDays?.toString() ?? "",
+            doctorConfirmed: appointment.medicationDoctorConfirmed ?? false,
+          },
+        ],
       additionalExaminations: appointment.additionalExaminations ?? [],
-      depositPaid: appointment.deposit === "완료",
+      depositStatus:
+        appointment.deposit === "완료"
+          ? "PAID"
+          : appointment.depositUnpaidConfirmed
+            ? "UNPAID"
+            : "UNSELECTED",
       depositPaymentMethod: appointment.depositPaymentMethod ?? "미확인",
       depositAmount: appointment.depositAmount,
       additionalPrepayment: appointment.additionalPrepayment ?? false,
@@ -2140,21 +2190,32 @@ function draftFromAppointment(appointment?: Appointment): BookingDraft {
     dateOfBirth: "",
     sex: "",
     careCategory: "검진",
-    procedure: "위·대장",
+    procedure: bookingOrigin === "SAME_DAY" ? "위" : "위·대장",
     procedureSet: "세트60",
     upperSedation: true,
     colonSedation: false,
-    date: "2026-08-01",
-    start: "10:30",
+    date: bookingOrigin === "SAME_DAY" ? seoulTodayIso() : "2026-08-01",
+    start: bookingOrigin === "SAME_DAY" ? "09:00" : "10:30",
     bucket: "STANDARD_MORNING",
+    bookingOrigin,
+    sameDayReason: "",
+    sameDayPreparationConfirmed: false,
+    sameDayClinicianConfirmed: false,
+    sameDayEscortConfirmed: false,
     screeningCopay: "없음",
     bowelPreparation: "원프렙",
     medicationsChecked: false,
-    medicationDiscontinuationName: "",
-    medicationDiscontinuationDays: "",
-    medicationDoctorConfirmed: false,
+    medicationListMemo: "",
+    medicationDiscontinuations: [
+      {
+        id: "new-medication-1",
+        medicationName: "",
+        discontinuationDays: "",
+        doctorConfirmed: false,
+      },
+    ],
     additionalExaminations: [],
-    depositPaid: false,
+    depositStatus: "UNSELECTED",
     depositPaymentMethod: "미확인",
     depositAmount: undefined,
     additionalPrepayment: false,
@@ -2164,35 +2225,268 @@ function draftFromAppointment(appointment?: Appointment): BookingDraft {
   };
 }
 
+function validateBackendBookingDraft(draft: BookingDraft): ValidationResult {
+  const duration = procedureDuration(draft.procedure, draft.procedureSet);
+  const errors: string[] = [];
+  if (!draft.name.trim() || !draft.chartNumber.trim() || !draft.dateOfBirth || !draft.sex) {
+    errors.push("환자 이름·차트번호·생년월일·성별을 모두 확인해 주세요.");
+  } else if (!isValidBirthDate(draft.dateOfBirth, draft.date)) {
+    errors.push("생년월일을 YYYY-MM-DD 형식의 실제 날짜로 입력해 주세요.");
+  }
+  if (draft.bucket === "AFTERNOON_EXCEPTION" && !draft.exceptionReason.trim()) {
+    errors.push("14:00 오후 예외 예약에는 사유가 필요합니다.");
+  }
+  if (draft.bookingOrigin === "SAME_DAY") {
+    if (draft.date !== seoulTodayIso()) {
+      errors.push("당일 위내시경은 오늘 날짜로만 등록할 수 있습니다.");
+    }
+    if (draft.procedure !== "위") {
+      errors.push("당일 추가 검사는 위내시경만 등록할 수 있습니다.");
+    }
+    if (!draft.sameDayReason.trim()) {
+      errors.push("당일 위내시경 요청 사유를 입력해 주세요.");
+    }
+    if (!draft.sameDayPreparationConfirmed || !draft.sameDayClinicianConfirmed) {
+      errors.push("검사 준비와 의료진 시행 가능 확인이 필요합니다.");
+    }
+    if (draft.upperSedation && !draft.sameDayEscortConfirmed) {
+      errors.push("수면 위내시경은 귀가 동행 확인이 필요합니다.");
+    }
+    if (draft.bucket === "SAME_DAY_EXTENSION" && !draft.additionalSlotId) {
+      errors.push("승인된 30분 연장 슬롯을 선택해 주세요.");
+    }
+  }
+  return {
+    valid: errors.length === 0,
+    duration,
+    end: fromMinutes(toMinutes(draft.start) + duration),
+    errors,
+    alternatives: [],
+  };
+}
+
+const BOOKING_CALENDAR_WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"] as const;
+const BOOKING_WINDOW_END = addCalendarDays(addCalendarMonths(REFERENCE_TODAY, 4), -1);
+
+function shortDateLabel(value: string): string {
+  const date = parseIsoDate(value);
+  return `${date.getMonth() + 1}/${date.getDate()}(${KOREAN_WEEKDAYS[date.getDay()]})`;
+}
+
+function bookingDayTitle(
+  availability: ReturnType<typeof dayAvailability>,
+  bucket: BookingDraft["bucket"],
+): string {
+  const label = koreanDateLabel(availability.date);
+  if (availability.closed) return `${label} · 휴진`;
+  const usage =
+    bucket === "AFTERNOON_EXCEPTION"
+      ? `14시 예외 ${availability.afternoonBooked ? 1 : 0}/1`
+      : availability.shortMorning
+        ? "단축 운영 09:00~11:00"
+        : `위 ${availability.upperCount}/${MORNING_UPPER_CAPACITY} · 대장 ${availability.colonCount}/${MORNING_COLON_CAPACITY}`;
+  const starts = availability.availableStarts.length
+    ? `가능 ${availability.availableStarts.join(", ")}`
+    : "가능 시간 없음";
+  return `${label} · ${usage} · ${starts}`;
+}
+
+function BookingDatePicker({
+  draft,
+  appointments,
+  excludeAppointmentId,
+  onSelectDate,
+}: {
+  draft: BookingDraft;
+  appointments: Appointment[];
+  excludeAppointmentId?: string;
+  onSelectDate: (date: string) => void;
+}) {
+  const [visibleMonth, setVisibleMonth] = useState(() =>
+    addCalendarMonths(draft.date, 0),
+  );
+  const { year, month, days } = monthGridDays(visibleMonth);
+  const availabilityFor = (date: string) =>
+    dayAvailability(draft, appointments, date, excludeAppointmentId);
+  const selected = availabilityFor(draft.date);
+
+  const nextAvailable: ReturnType<typeof dayAvailability>[] = [];
+  for (
+    let date =
+      draft.date >= REFERENCE_TODAY ? addCalendarDays(draft.date, 1) : REFERENCE_TODAY;
+    date <= BOOKING_WINDOW_END && nextAvailable.length < 3;
+    date = addCalendarDays(date, 1)
+  ) {
+    const availability = availabilityFor(date);
+    if (availability.availableStarts.length > 0) nextAvailable.push(availability);
+  }
+
+  const selectDate = (date: string) => {
+    setVisibleMonth(addCalendarMonths(date, 0));
+    onSelectDate(date);
+  };
+
+  return (
+    <div className="booking-calendar">
+      <div className="booking-calendar__header">
+        <button
+          type="button"
+          className="booking-calendar__nav"
+          aria-label="이전 달"
+          disabled={visibleMonth <= addCalendarMonths(REFERENCE_TODAY, 0)}
+          onClick={() => setVisibleMonth(addCalendarMonths(visibleMonth, -1))}
+        >
+          ‹
+        </button>
+        <strong>
+          {year}년 {month + 1}월
+        </strong>
+        <button
+          type="button"
+          className="booking-calendar__nav"
+          aria-label="다음 달"
+          disabled={visibleMonth >= addCalendarMonths(BOOKING_WINDOW_END, 0)}
+          onClick={() => setVisibleMonth(addCalendarMonths(visibleMonth, 1))}
+        >
+          ›
+        </button>
+        <span>선택: {koreanDateLabel(draft.date)}</span>
+      </div>
+      <div className="booking-calendar__grid">
+        {BOOKING_CALENDAR_WEEKDAYS.map((weekday) => (
+          <div className="booking-calendar__weekday" key={weekday}>
+            {weekday}
+          </div>
+        ))}
+        {days.map((day) => {
+          if (!day.currentMonth) {
+            return (
+              <span
+                className="booking-calendar__cell is-outside"
+                aria-hidden="true"
+                key={day.iso}
+              />
+            );
+          }
+          const availability = availabilityFor(day.iso);
+          const isSelected = day.iso === draft.date;
+          const outOfWindow = day.iso < REFERENCE_TODAY || day.iso > BOOKING_WINDOW_END;
+          const count = availability.availableStarts.length;
+          const state = availability.closed
+            ? "is-closed"
+            : outOfWindow
+              ? "is-past"
+              : count > 0
+                ? "is-available"
+                : "is-full";
+          const label = availability.closed
+            ? "휴진"
+            : outOfWindow
+              ? ""
+              : count > 0
+                ? `가능 ${count}`
+                : "마감";
+          return (
+            <button
+              type="button"
+              className={`booking-calendar__cell ${state} ${isSelected ? "is-selected" : ""}`}
+              disabled={(availability.closed || outOfWindow) && !isSelected}
+              aria-pressed={isSelected}
+              aria-label={`${koreanDateLabel(day.iso)} ${label}`}
+              title={bookingDayTitle(availability, draft.bucket)}
+              onClick={() => selectDate(day.iso)}
+              key={day.iso}
+            >
+              <span>{day.day}</span>
+              {label && <small>{label}</small>}
+              {availability.shortMorning &&
+                !outOfWindow &&
+                draft.bucket === "STANDARD_MORNING" && <em>단축</em>}
+            </button>
+          );
+        })}
+      </div>
+      {selected.availableStarts.length === 0 && (
+        <p className="booking-calendar__notice" role="status">
+          {selected.closed
+            ? "선택한 날짜는 휴진일입니다."
+            : "선택한 날짜에는 현재 검사 조건으로 예약 가능한 시간이 없습니다."}{" "}
+          아래 다음 가능일을 선택해 주세요.
+        </p>
+      )}
+      <div className="booking-calendar__quick">
+        <span>다음 가능일</span>
+        {nextAvailable.length > 0 ? (
+          nextAvailable.map((item) => (
+            <button type="button" onClick={() => selectDate(item.date)} key={item.date}>
+              {shortDateLabel(item.date)} · {item.availableStarts.length}개
+            </button>
+          ))
+        ) : (
+          <span>{shortDateLabel(BOOKING_WINDOW_END)}까지 가능한 날짜가 없습니다.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function BookingWizard({
   appointment,
   appointments,
+  sameDay = false,
+  canApproveExtension,
+  onCreateAdditionalSlot,
   onClose,
   onSave,
 }: {
   appointment?: Appointment;
   appointments: Appointment[];
+  sameDay?: boolean;
+  canApproveExtension: boolean;
+  onCreateAdditionalSlot: (
+    serviceDate: string,
+    startTime: string,
+    reason: string,
+  ) => Promise<{ id: string; start_time: string }>;
   onClose: () => void;
-  onSave: (draft: BookingDraft, validation: ValidationResult) => void;
+  onSave: (draft: BookingDraft, validation: ValidationResult) => Promise<void>;
 }) {
   const [step, setStep] = useState(1);
   const [draft, setDraft] = useState<BookingDraft>(() =>
-    draftFromAppointment(appointment),
+    draftFromAppointment(appointment, sameDay ? "SAME_DAY" : "ADVANCE"),
   );
   const [saveAttempted, setSaveAttempted] = useState(false);
+  const [savePending, setSavePending] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [availability, setAvailability] =
+    useState<ScheduleAvailabilityResponse | null>(null);
+  const [availabilityError, setAvailabilityError] = useState("");
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityRevision, setAvailabilityRevision] = useState(0);
+  const [extensionStart, setExtensionStart] = useState(
+    isShortMorning(draft.date) ? "11:00" : "12:00",
+  );
+  const [extensionReason, setExtensionReason] = useState("");
+  const [extensionPending, setExtensionPending] = useState(false);
+  const [extensionError, setExtensionError] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
+  const birthDatePickerRef = useRef<HTMLInputElement>(null);
 
   const validation = useMemo(
-    () => validateBooking(draft, appointments, appointment?.id),
+    () =>
+      appointment
+        ? validateBooking(draft, appointments, appointment.id)
+        : validateBackendBookingDraft(draft),
     [draft, appointments, appointment?.id],
   );
+  const birthDateValid = isValidBirthDate(draft.dateOfBirth, draft.date);
   const identityComplete = Boolean(
     draft.name.trim() &&
       draft.chartNumber.trim() &&
-      draft.dateOfBirth &&
+      birthDateValid &&
       draft.sex,
   );
-  const age = draft.dateOfBirth
+  const age = birthDateValid
     ? calculateAge(draft.dateOfBirth, draft.date, draft.careCategory)
     : null;
 
@@ -2200,6 +2494,52 @@ function BookingWizard({
     key: Key,
     value: BookingDraft[Key],
   ) => setDraft((current) => ({ ...current, [key]: value }));
+
+  const updateMedicationDiscontinuation = <
+    Key extends keyof BookingDraft["medicationDiscontinuations"][number],
+  >(
+    id: string,
+    key: Key,
+    value: BookingDraft["medicationDiscontinuations"][number][Key],
+  ) => {
+    patchDraft(
+      "medicationDiscontinuations",
+      draft.medicationDiscontinuations.map((medication) =>
+        medication.id === id ? { ...medication, [key]: value } : medication,
+      ),
+    );
+  };
+
+  const addMedicationDiscontinuation = () => {
+    patchDraft("medicationDiscontinuations", [
+      ...draft.medicationDiscontinuations,
+      {
+        id: `medication-${Date.now()}`,
+        medicationName: "",
+        discontinuationDays: "",
+        doctorConfirmed: false,
+      },
+    ]);
+  };
+
+  const removeMedicationDiscontinuation = (id: string) => {
+    const remaining = draft.medicationDiscontinuations.filter(
+      (medication) => medication.id !== id,
+    );
+    patchDraft(
+      "medicationDiscontinuations",
+      remaining.length
+        ? remaining
+        : [
+            {
+              id: `medication-${Date.now()}`,
+              medicationName: "",
+              discontinuationDays: "",
+              doctorConfirmed: false,
+            },
+          ],
+    );
+  };
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -2218,10 +2558,108 @@ function BookingWizard({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    if (appointment) return;
+    let cancelled = false;
+    setAvailabilityLoading(true);
+    setAvailabilityError("");
+    setAvailability(null);
+    void appointmentsApi
+      .availability(draft)
+      .then((response) => {
+        if (cancelled) return;
+        setAvailability(response);
+        const starts = response.slots.map((slot) => slot.start_time.slice(0, 5));
+        if (starts.length > 0 && !starts.includes(draft.start)) {
+          setDraft((current) => ({
+            ...current,
+            start: starts[0],
+            additionalSlotId: response.slots[0].additional_slot_id ?? undefined,
+          }));
+        }
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setAvailabilityError(
+          error instanceof ApiError
+            ? error.message
+            : "가능 시간을 조회하지 못했습니다.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setAvailabilityLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    appointment,
+    draft.date,
+    draft.procedure,
+    draft.procedureSet,
+    draft.upperSedation,
+    draft.colonSedation,
+    draft.bucket,
+    draft.bookingOrigin,
+    draft.additionalSlotId,
+    availabilityRevision,
+  ]);
+
   const slotStarts =
-    draft.bucket === "AFTERNOON_EXCEPTION"
-      ? ["14:00"]
-      : standardStartsFor(draft.date);
+    appointment
+      ? draft.bucket === "AFTERNOON_EXCEPTION"
+        ? ["14:00"]
+        : standardStartsFor(draft.date)
+      : availability?.slots.map((slot) => slot.start_time.slice(0, 5)) ?? [];
+  const selectedStartAvailable = Boolean(
+    appointment || slotStarts.includes(draft.start),
+  );
+
+  const submitBooking = async () => {
+    setSaveAttempted(true);
+    setSaveError("");
+    if (!validation.valid || !selectedStartAvailable || availabilityLoading) return;
+    setSavePending(true);
+    try {
+      await onSave(draft, validation);
+    } catch (error) {
+      setSaveError(bookingCreateErrorMessage(error));
+      if (error instanceof ApiError && error.status === 409) {
+        setAvailabilityRevision((current) => current + 1);
+      }
+    } finally {
+      setSavePending(false);
+    }
+  };
+
+  const approveExtension = async () => {
+    setExtensionError("");
+    if (!extensionReason.trim()) {
+      setExtensionError("연장 슬롯 승인 사유를 입력해 주세요.");
+      return;
+    }
+    setExtensionPending(true);
+    try {
+      const slot = await onCreateAdditionalSlot(
+        draft.date,
+        extensionStart,
+        extensionReason,
+      );
+      setDraft((current) => ({
+        ...current,
+        bucket: "SAME_DAY_EXTENSION",
+        start: slot.start_time.slice(0, 5),
+        additionalSlotId: slot.id,
+      }));
+      setAvailabilityRevision((current) => current + 1);
+    } catch (error) {
+      setExtensionError(
+        error instanceof Error ? error.message : "연장 슬롯을 개설하지 못했습니다.",
+      );
+    } finally {
+      setExtensionPending(false);
+    }
+  };
 
   const renderStep = () => {
     if (step === 1) {
@@ -2255,12 +2693,50 @@ function BookingWizard({
             </label>
             <label className="field">
               <span>생년월일</span>
-              <input
-                type="date"
-                value={draft.dateOfBirth}
-                onChange={(event) => patchDraft("dateOfBirth", event.target.value)}
-                required
-              />
+              <div className="birth-date-input">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="bday"
+                  maxLength={10}
+                  value={draft.dateOfBirth}
+                  placeholder="YYYYMMDD"
+                  aria-invalid={Boolean(draft.dateOfBirth) && !birthDateValid}
+                  onChange={(event) =>
+                    patchDraft(
+                      "dateOfBirth",
+                      formatBirthDateInput(event.target.value),
+                    )
+                  }
+                  required
+                />
+                <button
+                  type="button"
+                  className="birth-date-calendar-button"
+                  aria-label="달력으로 생년월일 선택"
+                  onClick={() => birthDatePickerRef.current?.showPicker()}
+                >
+                  <Icon name="month" />
+                </button>
+                <input
+                  ref={birthDatePickerRef}
+                  className="birth-date-native-picker"
+                  type="date"
+                  min="1900-01-01"
+                  max={draft.date}
+                  value={birthDateValid ? draft.dateOfBirth : ""}
+                  aria-label="생년월일 달력"
+                  tabIndex={-1}
+                  onChange={(event) =>
+                    patchDraft("dateOfBirth", event.target.value)
+                  }
+                />
+              </div>
+              <small className={draft.dateOfBirth && !birthDateValid ? "field-error" : ""}>
+                {draft.dateOfBirth && !birthDateValid
+                  ? "실제 생년월일 8자리를 확인해 주세요."
+                  : "숫자 8자리로 입력하면 YYYY-MM-DD 형식으로 자동 구분됩니다."}
+              </small>
             </label>
             <fieldset className="field">
               <legend>성별</legend>
@@ -2318,12 +2794,22 @@ function BookingWizard({
               <p>선택한 시간은 저장 직전에 Backend에서도 다시 검증됩니다.</p>
             </div>
           </div>
+          {draft.bookingOrigin === "SAME_DAY" && (
+            <div className="same-day-banner" role="note">
+              <Icon name="today" />
+              <div>
+                <strong>당일 위내시경 · 30분 전용</strong>
+                <span>대장 및 동시검사는 등록할 수 없으며 오늘 일정만 조회합니다.</span>
+              </div>
+            </div>
+          )}
           <label className="field">
             <span>검사 종류</span>
             <div className="choice-cards choice-cards--three">
               {(["위", "대장", "위·대장"] as const).map((procedure) => (
                 <button
                   type="button"
+                  disabled={draft.bookingOrigin === "SAME_DAY" && procedure !== "위"}
                   className={draft.procedure === procedure ? "is-active" : ""}
                   onClick={() => patchDraft("procedure", procedure)}
                   key={procedure}
@@ -2400,78 +2886,219 @@ function BookingWizard({
               </fieldset>
             )}
           </div>
-          <div className="form-grid form-grid--two">
-            <label className="field">
-              <span>검사 예정일</span>
-              <input
-                type="date"
-                value={draft.date}
-                min="2026-07-27"
-                max="2026-08-31"
-                onChange={(event) => patchDraft("date", event.target.value)}
-              />
-            </label>
-            <fieldset className="field">
-              <legend>예약 구분</legend>
-              <div className="segmented-control">
-                <button
-                  type="button"
-                  className={
-                    draft.bucket === "STANDARD_MORNING" ? "is-active" : ""
-                  }
-                  onClick={() => {
-                    patchDraft("bucket", "STANDARD_MORNING");
-                    patchDraft("start", "09:00");
-                  }}
-                >
-                  일반 오전
-                </button>
-                <button
-                  type="button"
-                  className={
-                    draft.bucket === "AFTERNOON_EXCEPTION" ? "is-active" : ""
-                  }
-                  onClick={() => {
-                    patchDraft("bucket", "AFTERNOON_EXCEPTION");
-                    patchDraft("start", "14:00");
-                  }}
-                >
-                  14시 예외
-                </button>
-              </div>
-            </fieldset>
-          </div>
+          {draft.bookingOrigin !== "SAME_DAY" && <fieldset className="field">
+            <legend>예약 구분</legend>
+            <div className="segmented-control">
+              <button
+                type="button"
+                className={
+                  draft.bucket === "STANDARD_MORNING" ? "is-active" : ""
+                }
+                onClick={() => {
+                  patchDraft("bucket", "STANDARD_MORNING");
+                  patchDraft("start", "09:00");
+                }}
+              >
+                일반 오전
+              </button>
+              <button
+                type="button"
+                className={
+                  draft.bucket === "AFTERNOON_EXCEPTION" ? "is-active" : ""
+                }
+                onClick={() => {
+                  patchDraft("bucket", "AFTERNOON_EXCEPTION");
+                  patchDraft("start", "14:00");
+                }}
+              >
+                14시 예외
+              </button>
+            </div>
+          </fieldset>}
+          {draft.bookingOrigin !== "SAME_DAY" ? <fieldset className="field">
+            <legend>검사 예정일</legend>
+            <BookingDatePicker
+              draft={draft}
+              appointments={appointments}
+              excludeAppointmentId={appointment?.id}
+              onSelectDate={(date) =>
+                setDraft((current) => {
+                  const { availableStarts } = dayAvailability(
+                    current,
+                    appointments,
+                    date,
+                    appointment?.id,
+                  );
+                  const start =
+                    availableStarts.length === 0 ||
+                    availableStarts.includes(current.start)
+                      ? current.start
+                      : availableStarts[0];
+                  return { ...current, date, start };
+                })
+              }
+            />
+          </fieldset> : (
+            <div className="same-day-date-lock">
+              <Icon name="lock" />
+              <span><strong>검사일</strong>{draft.date} · 서울 기준 오늘</span>
+            </div>
+          )}
           <fieldset className="field">
             <legend>예약 시간</legend>
+            {!appointment && availabilityLoading && (
+              <p className="booking-calendar__notice" role="status">
+                Backend에서 가능 시간을 확인하는 중입니다.
+              </p>
+            )}
+            {!appointment && availabilityError && (
+              <p className="booking-calendar__notice is-error" role="alert">
+                {availabilityError}
+              </p>
+            )}
             <div className="slot-picker">
               {slotStarts.map((start) => {
-                const slotValidation = validateBooking(
+                const slotValidation = validateSchedule(
                   { ...draft, start },
                   appointments,
                   appointment?.id,
-                  false,
                 );
                 return (
                   <button
                     type="button"
                     className={`${draft.start === start ? "is-selected" : ""} ${
-                      slotValidation.valid ? "is-available" : "is-unavailable"
+                      appointment && !slotValidation.valid
+                        ? "is-unavailable"
+                        : "is-available"
                     }`}
-                    onClick={() => patchDraft("start", start)}
+                    onClick={() => {
+                      const selectedSlot = availability?.slots.find(
+                        (slot) => slot.start_time.slice(0, 5) === start,
+                      );
+                      setDraft((current) => ({
+                        ...current,
+                        start,
+                        additionalSlotId:
+                          selectedSlot?.additional_slot_id ?? undefined,
+                      }));
+                    }}
                     key={start}
                     title={
-                      slotValidation.valid
-                        ? "예약 가능"
+                      !appointment || slotValidation.valid
+                        ? "Backend 조회 기준 예약 가능"
                         : slotValidation.errors.join(" ")
                     }
                   >
                     <strong>{start}</strong>
-                    <small>{slotValidation.valid ? "가능" : "확인 필요"}</small>
+                    <small>{!appointment || slotValidation.valid ? "가능" : "불가"}</small>
                   </button>
                 );
               })}
             </div>
           </fieldset>
+          {draft.bookingOrigin === "SAME_DAY" && slotStarts.length === 0 && (
+            <div className="same-day-extension-panel">
+              <div className="exception-form__title">
+                <Icon name="warning" />
+                <div>
+                  <strong>사용 가능한 일반 30분 슬롯이 없습니다.</strong>
+                  <span>승인된 연장 슬롯을 조회하거나 관리자가 새 슬롯을 개설합니다.</span>
+                </div>
+              </div>
+              {draft.bucket === "STANDARD_MORNING" && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() =>
+                    setDraft((current) => ({
+                      ...current,
+                      bucket: "SAME_DAY_EXTENSION",
+                      additionalSlotId: undefined,
+                    }))
+                  }
+                >
+                  승인된 연장 슬롯 조회
+                </button>
+              )}
+              {canApproveExtension && (
+                <div className="form-grid form-grid--two">
+                  <label className="field">
+                    <span>연장 시작시각</span>
+                    <select
+                      value={extensionStart}
+                      onChange={(event) => setExtensionStart(event.target.value)}
+                    >
+                      {(isShortMorning(draft.date)
+                        ? ["11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
+                        : ["12:00", "12:30", "13:00", "13:30"]
+                      ).map((value) => <option key={value}>{value}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>관리자 승인 사유</span>
+                    <input
+                      value={extensionReason}
+                      onChange={(event) => setExtensionReason(event.target.value)}
+                      placeholder="예: 당일 진료 후 시행 승인"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={extensionPending}
+                    onClick={() => void approveExtension()}
+                  >
+                    {extensionPending ? "승인 중…" : "30분 연장 슬롯 승인 및 열기"}
+                  </button>
+                </div>
+              )}
+              {extensionError && <p className="field-error" role="alert">{extensionError}</p>}
+            </div>
+          )}
+          {draft.bookingOrigin === "SAME_DAY" && (
+            <div className="same-day-readiness">
+              <label className="field">
+                <span>당일 요청 사유</span>
+                <input
+                  value={draft.sameDayReason}
+                  onChange={(event) => patchDraft("sameDayReason", event.target.value)}
+                  placeholder="예: 당일 진료 후 의료진 검사 결정"
+                />
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={draft.sameDayPreparationConfirmed}
+                  onChange={(event) =>
+                    patchDraft("sameDayPreparationConfirmed", event.target.checked)
+                  }
+                />
+                <span><strong>검사 준비 확인</strong><small>원내 정책에 따른 준비 항목을 사람이 확인했습니다.</small></span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={draft.sameDayClinicianConfirmed}
+                  onChange={(event) =>
+                    patchDraft("sameDayClinicianConfirmed", event.target.checked)
+                  }
+                />
+                <span><strong>의료진 시행 가능 확인</strong><small>시스템 판단이 아닌 의료진 결정을 기록합니다.</small></span>
+              </label>
+              {draft.upperSedation && (
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={draft.sameDayEscortConfirmed}
+                    onChange={(event) =>
+                      patchDraft("sameDayEscortConfirmed", event.target.checked)
+                    }
+                  />
+                  <span><strong>귀가 동행 확인</strong><small>수면 위내시경일 때 필수입니다.</small></span>
+                </label>
+              )}
+            </div>
+          )}
           {draft.bucket === "AFTERNOON_EXCEPTION" && (
             <div className="exception-form">
               <div className="exception-form__title">
@@ -2628,6 +3255,15 @@ function BookingWizard({
     }
 
     if (step === 5) {
+      const enteredMedications = draft.medicationDiscontinuations.filter(
+        (medication) =>
+          medication.medicationName.trim() ||
+          medication.discontinuationDays.trim() ||
+          medication.doctorConfirmed,
+      );
+      const confirmedMedicationCount = enteredMedications.filter(
+        (medication) => medication.doctorConfirmed,
+      ).length;
       return (
         <div className="form-section">
           <div className="form-section__heading">
@@ -2654,8 +3290,20 @@ function BookingWizard({
             />
             <span>
               <strong>전체 복용약 목록 확인 완료</strong>
-              <small>합성 Prototype에서는 약명 상세를 저장하지 않습니다.</small>
+              <small>환자 진술과 확인 자료를 대조한 뒤 완료로 표시합니다.</small>
             </span>
+          </label>
+          <label className="field medication-list-memo">
+            <span>전체 복용약 목록 메모</span>
+            <textarea
+              rows={3}
+              value={draft.medicationListMemo}
+              placeholder="예: 합성약 A 1정 아침, 합성약 B 1정 저녁 · 복용약 없음은 ‘없음’으로 기록"
+              onChange={(event) =>
+                patchDraft("medicationListMemo", event.target.value)
+              }
+            />
+            <small>약품명·용량·복용 횟수를 확인된 내용 그대로 기록합니다.</small>
           </label>
           <div className="medication-decision">
             <div className="medication-decision__heading">
@@ -2666,66 +3314,105 @@ function BookingWizard({
                   입력합니다.
                 </span>
               </div>
-              <label className="switch-row">
-                <input
-                  type="checkbox"
-                  checked={draft.medicationDoctorConfirmed}
-                  onChange={(event) =>
-                    patchDraft(
-                      "medicationDoctorConfirmed",
-                      event.target.checked,
-                    )
-                  }
-                />
-                <span>담당 의사 확인 완료</span>
-              </label>
+              <button
+                type="button"
+                className="secondary-button medication-add-button"
+                onClick={addMedicationDiscontinuation}
+              >
+                <Icon name="add" />
+                약품 추가
+              </button>
             </div>
-            <div className="form-grid form-grid--two">
-              <label className="field">
-                <span>중단 검토 약품명</span>
-                <input
-                  value={draft.medicationDiscontinuationName}
-                  placeholder="예: 합성약 A"
-                  onChange={(event) =>
-                    patchDraft(
-                      "medicationDiscontinuationName",
-                      event.target.value,
-                    )
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>의사가 결정한 실제 중단 일수</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  inputMode="numeric"
-                  value={draft.medicationDiscontinuationDays}
-                  placeholder="예: 5"
-                  onChange={(event) =>
-                    patchDraft(
-                      "medicationDiscontinuationDays",
-                      event.target.value,
-                    )
-                  }
-                />
-              </label>
+            <div className="medication-decision-list">
+              {draft.medicationDiscontinuations.map((medication, index) => (
+                <div className="medication-decision-row" key={medication.id}>
+                  <div className="medication-decision-row__heading">
+                    <strong>중단 검토 약 {index + 1}</strong>
+                    <button
+                      type="button"
+                      className="text-button text-button--danger"
+                      onClick={() => removeMedicationDiscontinuation(medication.id)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                  <div className="medication-decision-fields">
+                    <label className="field">
+                      <span>약품명</span>
+                      <input
+                        value={medication.medicationName}
+                        placeholder="예: 합성약 A"
+                        onChange={(event) =>
+                          updateMedicationDiscontinuation(
+                            medication.id,
+                            "medicationName",
+                            event.target.value,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>의사가 결정한 실제 중단 일수</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputMode="numeric"
+                        value={medication.discontinuationDays}
+                        placeholder="예: 5"
+                        onChange={(event) =>
+                          updateMedicationDiscontinuation(
+                            medication.id,
+                            "discontinuationDays",
+                            event.target.value,
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="switch-row medication-confirmation">
+                      <input
+                        type="checkbox"
+                        checked={medication.doctorConfirmed}
+                        onChange={(event) =>
+                          updateMedicationDiscontinuation(
+                            medication.id,
+                            "doctorConfirmed",
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      <span>담당 의사 확인</span>
+                    </label>
+                  </div>
+                </div>
+              ))}
             </div>
             <small className="field-note">
-              미입력 시 중단 결정 없음으로 처리합니다. 입력하는 경우 약품명·일수와
+              빈 행은 중단 결정 없음으로 처리합니다. 입력한 각 약품은 약품명·일수와
               담당 의사 확인이 모두 필요합니다.
             </small>
           </div>
-          <div className="check-card-grid check-card-grid--four">
-            <CheckCard label="항응고제" checked={false} />
-            <CheckCard label="항혈소판제" checked />
-            <CheckCard label="심장·혈관 시술력" checked={false} />
-            <CheckCard
-              label="의사 확인"
-              checked={draft.medicationDoctorConfirmed}
-              warning={!draft.medicationDoctorConfirmed}
-            />
+          <div className="medication-summary-grid">
+            <div className={draft.medicationsChecked ? "is-complete" : "is-warning"}>
+              <span>전체 목록 확인</span>
+              <strong>{draft.medicationsChecked ? "완료" : "대기"}</strong>
+            </div>
+            <div>
+              <span>중단 검토 약</span>
+              <strong>{enteredMedications.length}개</strong>
+            </div>
+            <div
+              className={
+                enteredMedications.length === confirmedMedicationCount
+                  ? "is-complete"
+                  : "is-warning"
+              }
+            >
+              <span>담당 의사 확인</span>
+              <strong>
+                {confirmedMedicationCount}/{enteredMedications.length}
+              </strong>
+            </div>
           </div>
         </div>
       );
@@ -2779,6 +3466,8 @@ function BookingWizard({
     }
 
     if (step === 7) {
+      const depositPaid = draft.depositStatus === "PAID";
+      const depositUnpaid = draft.depositStatus === "UNPAID";
       return (
         <div className="form-section">
           <div className="form-section__heading">
@@ -2797,27 +3486,44 @@ function BookingWizard({
                 {[10000, 20000, 30000].map((amount) => <option key={amount} value={amount}>{amount.toLocaleString("ko-KR")}원</option>)}
               </select>
             </div>
-            <label className="switch-row">
-              <input
-                type="checkbox"
-                checked={draft.depositPaid}
-                onChange={(event) => {
-                  const paid = event.target.checked;
-                  setDraft((current) => ({
-                    ...current,
-                    depositPaid: paid,
-                    additionalPrepayment: paid
-                      ? current.additionalPrepayment
-                      : false,
-                  }));
-                }}
-              />
-              <span>납부 완료</span>
-            </label>
+            <fieldset className="deposit-status-choice">
+              <legend>수납 상태</legend>
+              <label className={depositPaid ? "is-selected" : ""}>
+                <input
+                  type="radio"
+                  name="deposit-status"
+                  checked={depositPaid}
+                  onChange={() => patchDraft("depositStatus", "PAID")}
+                />
+                <span>
+                  <strong>납부 완료</strong>
+                  <small>금액과 수납 방법을 함께 기록합니다.</small>
+                </span>
+              </label>
+              <label className={depositUnpaid ? "is-selected is-unpaid" : ""}>
+                <input
+                  type="radio"
+                  name="deposit-status"
+                  checked={depositUnpaid}
+                  onChange={() =>
+                    setDraft((current) => ({
+                      ...current,
+                      depositStatus: "UNPAID",
+                      depositPaymentMethod: "미확인",
+                      additionalPrepayment: false,
+                    }))
+                  }
+                />
+                <span>
+                  <strong>미납으로 예약</strong>
+                  <small>미납 상태를 확인하고 예약을 진행합니다.</small>
+                </span>
+              </label>
+            </fieldset>
           </div>
           <div
             className={`deposit-options ${
-              draft.depositPaid ? "" : "is-disabled"
+              depositPaid ? "" : "is-disabled"
             }`}
           >
             <div className="deposit-method">
@@ -2830,7 +3536,7 @@ function BookingWizard({
                 {(["현금", "카드"] as const).map((method) => (
                   <button
                     type="button"
-                    disabled={!draft.depositPaid}
+                    disabled={!depositPaid}
                     className={
                       draft.depositPaymentMethod === method ? "is-active" : ""
                     }
@@ -2847,7 +3553,7 @@ function BookingWizard({
             <label className="checkbox-row">
               <input
                 type="checkbox"
-                disabled={!draft.depositPaid}
+                disabled={!depositPaid}
                 checked={draft.additionalPrepayment}
                 onChange={(event) =>
                   patchDraft("additionalPrepayment", event.target.checked)
@@ -2864,11 +3570,13 @@ function BookingWizard({
             <CheckCard label="환자 동의" checked />
             <CheckCard
               label={
-                draft.depositPaid
+                depositPaid
                   ? `${draft.depositPaymentMethod} 수납 기록`
-                  : "납부일 기록"
+                  : depositUnpaid
+                    ? "미납 예약 확인"
+                    : "수납 상태 확인"
               }
-              checked={draft.depositPaid}
+              checked={depositPaid || depositUnpaid}
             />
           </div>
         </div>
@@ -2906,6 +3614,10 @@ function BookingWizard({
             <small>
               {draft.bucket === "AFTERNOON_EXCEPTION"
                 ? "오후 예외 예약"
+                : draft.bucket === "SAME_DAY_EXTENSION"
+                  ? "당일 연장 슬롯"
+                  : draft.bookingOrigin === "SAME_DAY"
+                    ? "당일 일반 빈 슬롯"
                 : "일반 오전 예약"}
             </small>
           </div>
@@ -2918,13 +3630,17 @@ function BookingWizard({
             <span>준비</span>
             <strong>
               약제 {draft.medicationsChecked ? "확인" : "미완료"}
-              {draft.medicationDiscontinuationDays
-                ? ` · 중단 ${draft.medicationDiscontinuationDays}일`
+              {draft.medicationDiscontinuations.some((item) =>
+                item.medicationName.trim(),
+              )
+                ? ` · 중단 검토 ${draft.medicationDiscontinuations.filter((item) => item.medicationName.trim()).length}개`
                 : ""}{" "}
               · 예약금{" "}
-              {draft.depositPaid
+              {draft.depositStatus === "PAID"
                 ? `${draft.depositPaymentMethod} 완료`
-                : "대기"}
+                : draft.depositStatus === "UNPAID"
+                  ? "미납 확인"
+                  : "상태 미확인"}
               {draft.additionalPrepayment ? " · 추가 선납금 있음" : ""}
             </strong>
             <small>2차 확인은 당일 별도 수행</small>
@@ -2942,7 +3658,9 @@ function BookingWizard({
             </strong>
             <span>
               {validation.valid
-                ? "현재 합성 일정 Snapshot 기준으로 충돌이 없습니다."
+                ? appointment
+                  ? "현재 합성 일정 Snapshot 기준으로 충돌이 없습니다."
+                  : "Backend 가능 슬롯 조회 기준으로 저장할 수 있습니다."
                 : validation.errors[0]}
             </span>
           </div>
@@ -2963,19 +3681,42 @@ function BookingWizard({
         <header className="booking-modal__header">
           <div>
             <span className="eyebrow">
-              {appointment ? "예약 변경" : "신규 예약"}
+              {appointment
+                ? "예약 변경"
+                : draft.bookingOrigin === "SAME_DAY"
+                  ? "당일 위내시경"
+                  : "신규 예약"}
             </span>
             <h2 id="booking-modal-title">
-              {appointment ? `${appointment.name} 예약 변경` : "예약 등록"}
+              {appointment
+                ? `${appointment.name} 예약 변경`
+                : draft.bookingOrigin === "SAME_DAY"
+                  ? "당일 위내시경 빠른 등록"
+                  : "예약 등록"}
             </h2>
           </div>
           <span className="data-chip">
-            {appointment ? "합성 데이터" : "신규 입력"}
+            {appointment
+              ? "합성 데이터"
+              : draft.bookingOrigin === "SAME_DAY"
+                ? "위 30분"
+                : "신규 입력"}
           </span>
           <button className="icon-button" onClick={onClose} aria-label="닫기">
             <Icon name="close" />
           </button>
         </header>
+
+        {!appointment && (
+          <div className="prototype-boundary" role="note">
+            <Icon name="info" />
+            <span>
+              <strong>Backend 저장 범위</strong>
+              환자 식별·검사·일정·예약 구분{draft.bookingOrigin === "SAME_DAY" ? "·당일 확인" : ""}을 저장합니다. 검진 정보, 장정결제,
+              복용약, 추가 검사, 예약금과 확인 상태는 아직 정적 Prototype입니다.
+            </span>
+          </div>
+        )}
 
         <div className="booking-modal__body">
           <nav className="wizard-nav" aria-label="예약 등록 단계">
@@ -2986,7 +3727,10 @@ function BookingWizard({
                   className={`${step === stepNumber ? "is-active" : ""} ${
                     stepNumber < step ? "is-complete" : ""
                   }`}
-                  disabled={!identityComplete && stepNumber > 1}
+                  disabled={
+                    (!identityComplete && stepNumber > 1) ||
+                    (stepNumber > 7 && draft.depositStatus === "UNSELECTED")
+                  }
                   onClick={() => setStep(stepNumber)}
                   key={label}
                 >
@@ -3058,15 +3802,24 @@ function BookingWizard({
                 <dd>
                   {draft.bucket === "AFTERNOON_EXCEPTION"
                     ? "오후 별도 1명"
+                    : draft.bucket === "SAME_DAY_EXTENSION"
+                      ? "승인 슬롯 1건"
                     : isShortMorning(draft.date)
                       ? "4 Slot 기반"
                       : "위 5 · 대장 3"}
                 </dd>
               </div>
             </dl>
-            {saveAttempted && !validation.valid && (
+            {saveAttempted && (!validation.valid || !selectedStartAvailable) && (
               <div className="save-error" role="alert">
-                오류를 해결하기 전에는 원래 예약을 변경하지 않습니다.
+                {validation.errors[0] ??
+                  availabilityError ??
+                  "Backend에서 확인된 가능 시간을 선택해 주세요."}
+              </div>
+            )}
+            {saveError && (
+              <div className="save-error" role="alert">
+                {saveError}
               </div>
             )}
           </aside>
@@ -3087,7 +3840,10 @@ function BookingWizard({
             {step < 8 ? (
               <button
                 className="primary-button"
-                disabled={step === 1 && !identityComplete}
+                disabled={
+                  (step === 1 && !identityComplete) ||
+                  (step === 7 && draft.depositStatus === "UNSELECTED")
+                }
                 onClick={() => setStep((current) => Math.min(8, current + 1))}
               >
                 다음
@@ -3095,13 +3851,15 @@ function BookingWizard({
             ) : (
               <button
                 className="primary-button"
-                onClick={() => {
-                  setSaveAttempted(true);
-                  if (validation.valid) onSave(draft, validation);
-                }}
+                disabled={savePending || availabilityLoading}
+                onClick={() => void submitBooking()}
               >
                 <Icon name="check" />
-                {appointment ? "변경 저장" : "예약 저장"}
+                {savePending
+                  ? "저장 중…"
+                  : appointment
+                    ? "변경 저장"
+                    : "예약 저장"}
               </button>
             )}
           </div>
@@ -3188,6 +3946,21 @@ function AppointmentDetailDialog({
     { label: "예약금", icon: "deposit", state: appointment.deposit },
   ];
   const pendingItems = checkItems.filter((item) => item.state === "대기");
+  const medicationDiscontinuations =
+    appointment.medicationDiscontinuations ??
+    (appointment.medicationDiscontinuationName &&
+    appointment.medicationDiscontinuationDays !== undefined
+      ? [
+          {
+            medicationName: appointment.medicationDiscontinuationName,
+            discontinuationDays: appointment.medicationDiscontinuationDays,
+            doctorConfirmed: appointment.medicationDoctorConfirmed ?? false,
+          },
+        ]
+      : []);
+  const medicationConfirmationCount = medicationDiscontinuations.filter(
+    (medication) => medication.doctorConfirmed,
+  ).length;
 
   return (
     <div className="appointment-detail-backdrop" onMouseDown={onClose}>
@@ -3318,6 +4091,7 @@ function AppointmentDetailDialog({
                 <div><dt>검사 종류</dt><dd>{procedureLabel(appointment)}</dd></div>
                 <div><dt>현재 상태</dt><dd>{appointment.status}</dd></div>
                 <div><dt>오후 예외</dt><dd>{appointment.afternoonException ? appointment.exceptionReason ?? "승인 사유 확인" : "해당 없음"}</dd></div>
+                <div><dt>당일 추가</dt><dd>{appointment.sameDay ? `${appointment.sameDayExtension ? "연장슬롯 · " : ""}${appointment.sameDayReason ?? "사유 확인"}` : "해당 없음"}</dd></div>
               </dl>
               <AppointmentOperationsEditor key={`${appointment.id}-screening`} appointment={appointment} mode="screening" canEdit={canEdit} onSave={onUpdate} />
             </section>
@@ -3333,8 +4107,9 @@ function AppointmentDetailDialog({
                 <div><dt>대장 수면</dt><dd>{appointment.colonSedation === undefined ? "해당 없음" : appointment.colonSedation ? "수면" : "비수면"}</dd></div>
                 <div><dt>추가 검사</dt><dd>{appointment.additionalExaminations?.join(", ") ?? "선택 없음"}</dd></div>
                 <div><dt>약제확인</dt><dd><StateLabel state={appointment.medication} /></dd></div>
-                <div><dt>약제 중단 결정</dt><dd>{appointment.medicationDiscontinuationName && appointment.medicationDiscontinuationDays !== undefined ? `${appointment.medicationDiscontinuationName} · ${appointment.medicationDiscontinuationDays}일` : "기록 없음"}</dd></div>
-                <div><dt>의사 확인</dt><dd>{appointment.medicationDoctorConfirmed ? "완료" : "기록 없음"}</dd></div>
+                <div><dt>전체 복용약</dt><dd>{appointment.medicationListMemo || "기록 없음"}</dd></div>
+                <div><dt>약제 중단 결정</dt><dd>{medicationDiscontinuations.length > 0 ? medicationDiscontinuations.map((medication) => `${medication.medicationName} · ${medication.discontinuationDays}일`).join(", ") : "기록 없음"}</dd></div>
+                <div><dt>의사 확인</dt><dd>{medicationDiscontinuations.length > 0 ? `${medicationConfirmationCount}/${medicationDiscontinuations.length} 완료` : "기록 없음"}</dd></div>
                 <div><dt>D-1 안내</dt><dd><StateLabel state={appointment.d1} /></dd></div>
               </dl>
             </section>
@@ -3346,7 +4121,8 @@ function AppointmentDetailDialog({
               <h3>수납 정보</h3>
               <dl className="appointment-detail-list appointment-detail-list--wide">
                 <div><dt>예약금</dt><dd><StateLabel state={appointment.deposit} /></dd></div>
-                <div><dt>수납 방법</dt><dd>{appointment.deposit === "완료" ? appointment.depositPaymentMethod ?? "방법 확인 필요" : "미납"}</dd></div>
+                <div><dt>수납 상태</dt><dd>{appointment.deposit === "완료" ? "납부 완료" : appointment.depositUnpaidConfirmed ? "미납 확인" : "확인 대기"}</dd></div>
+                <div><dt>수납 방법</dt><dd>{appointment.deposit === "완료" ? appointment.depositPaymentMethod ?? "방법 확인 필요" : "해당 없음"}</dd></div>
                 <div><dt>예약금액</dt><dd>{appointment.depositAmount ? `${appointment.depositAmount.toLocaleString("ko-KR")}원` : "금액 미확인"}</dd></div>
                 <div><dt>추가 선납금</dt><dd>{appointment.additionalPrepayment ? "있음" : "없음"}</dd></div>
                 <div><dt>검진 본인부담</dt><dd>{appointment.screeningCopay ?? "해당 없음"}</dd></div>
@@ -3575,11 +4351,15 @@ function Workbench({
     useState<StatisticsPeriod>("week");
   const [appointments, setAppointments] =
     useState<Appointment[]>(initialAppointments);
+  const [backendAppointments, setBackendAppointments] = useState<Appointment[]>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleError, setScheduleError] = useState("");
+  const [scheduleRevision, setScheduleRevision] = useState(0);
   const [pathologyCases, setPathologyCases] =
     useState<PathologyCase[]>(initialPathologyCases);
   const [selectedId, setSelectedId] = useState("APT-017");
   const [bookingModal, setBookingModal] = useState<{
-    mode: "new" | "edit";
+    mode: "new" | "edit" | "same-day";
     appointmentId?: string;
   } | null>(null);
   const [drawer, setDrawer] = useState<DrawerState>(null);
@@ -3587,8 +4367,11 @@ function Workbench({
   const [toast, setToast] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  const canCreateAppointment = hasAnyPermission(user, ["appointment.create"]);
+  const canCreateAppointment =
+    hasAnyPermission(user, ["appointment.create"]) &&
+    hasAnyPermission(user, ["patient.read"]);
   const canUpdateAppointment = hasAnyPermission(user, ["appointment.update"]);
+  const canApproveExtension = hasAnyPermission(user, ["schedule_override.approve"]);
   const canVerifyIdentity = hasAnyPermission(user, [
     "verification.secondary",
   ]);
@@ -3596,20 +4379,50 @@ function Workbench({
   const visibleNavigation = useMemo(
     () =>
       NAVIGATION.filter((item) =>
-        hasAnyPermission(user, item.permissions),
+        item.id === "booking"
+          ? canCreateAppointment
+          : hasAnyPermission(user, item.permissions),
       ),
-    [user],
+    [canCreateAppointment, user],
   );
 
-  const selectedAppointment = appointments.find(
-    (appointment) => appointment.id === selectedId,
-  );
+  const selectedAppointment =
+    backendAppointments.find((appointment) => appointment.id === selectedId) ??
+    appointments.find((appointment) => appointment.id === selectedId);
   const editingAppointment =
     bookingModal?.mode === "edit"
-      ? appointments.find(
+      ? [...backendAppointments, ...appointments].find(
           (appointment) => appointment.id === bookingModal.appointmentId,
         )
       : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    setScheduleLoading(true);
+    setScheduleError("");
+    setBackendAppointments([]);
+    void Promise.all(calendarQueries(activeView, calendarDate).map(
+      ({ startDate, endDate }) => appointmentsApi.list(startDate, endDate),
+    ))
+      .then((pages) => {
+        if (!cancelled) setBackendAppointments(pages.flat());
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setBackendAppointments([]);
+        setScheduleError(
+          error instanceof ApiError
+            ? error.message
+            : "예약을 조회하지 못했습니다.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setScheduleLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, calendarDate, scheduleRevision]);
 
   const notify = (message: string) => {
     setToast(message);
@@ -3656,14 +4469,41 @@ function Workbench({
     setBookingModal({ mode: "new" });
   };
 
+  const openSameDayUpper = () => {
+    if (!canCreateAppointment) return;
+    setDrawer(null);
+    setBookingModal({ mode: "same-day" });
+  };
+
+  const createSameDayExtension = async (
+    serviceDate: string,
+    startTime: string,
+    reason: string,
+  ) => {
+    if (!csrfToken) {
+      throw new Error("보안 세션이 없어 연장 슬롯을 승인할 수 없습니다.");
+    }
+    return appointmentsApi.createAdditionalSlot(
+      serviceDate,
+      startTime,
+      reason,
+      csrfToken,
+    );
+  };
+
   const openEditBooking = (appointmentId = selectedId) => {
     if (!canUpdateAppointment || !appointmentId) return;
+    const target = backendAppointments.find((item) => item.id === appointmentId);
+    if (target) {
+      notify("Backend 예약 변경은 다음 연결 단계에서 제공합니다.");
+      return;
+    }
     setDrawer(null);
     setBookingModal({ mode: "edit", appointmentId });
   };
 
   const verifySelected = () => {
-    if (!canVerifyIdentity || !selectedAppointment) return;
+    if (!canVerifyIdentity || !selectedAppointment || selectedAppointment.backendManaged) return;
     setAppointments((current) =>
       current.map((appointment) =>
         appointment.id === selectedAppointment.id
@@ -3675,7 +4515,7 @@ function Workbench({
   };
 
   const correctSelectedVerification = (reason: string) => {
-    if (!canVerifyIdentity || !selectedAppointment) return;
+    if (!canVerifyIdentity || !selectedAppointment || selectedAppointment.backendManaged) return;
     const correctedAt = new Intl.DateTimeFormat("ko-KR", {
       year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
     }).format(new Date());
@@ -3694,14 +4534,21 @@ function Workbench({
     setLoggingOut(false);
   };
 
-  const saveBooking = (draft: BookingDraft, validation: ValidationResult) => {
+  const saveBooking = async (
+    draft: BookingDraft,
+    validation: ValidationResult,
+  ): Promise<void> => {
     const patientSex = draft.sex;
     if (!patientSex) {
       notify("환자 성별을 선택해 주세요.");
       return;
     }
-    if (draft.depositPaid && (!draft.depositAmount || draft.depositPaymentMethod === "미확인")) {
-      notify("예약금 수납 완료 시 금액과 카드·현금 수납 방법을 선택해 주세요.");
+    if (!isDepositSelectionComplete(draft)) {
+      notify(
+        draft.depositStatus === "UNSELECTED"
+          ? "예약금 납부 완료 또는 미납으로 예약 중 하나를 선택해 주세요."
+          : "예약금 수납 완료 시 금액과 카드·현금 수납 방법을 선택해 주세요.",
+      );
       return;
     }
     // 이 검사는 화면 노출 제어용입니다. 실제 권한은 Backend가 다시 검사해야 합니다.
@@ -3712,6 +4559,18 @@ function Workbench({
       notify("이 작업을 수행할 권한이 없습니다.");
       return;
     }
+    const medicationDiscontinuations = draft.medicationDiscontinuations
+      .filter(
+        (medication) =>
+          medication.medicationName.trim() &&
+          medication.discontinuationDays.trim(),
+      )
+      .map((medication) => ({
+        medicationName: medication.medicationName.trim(),
+        discontinuationDays: Number(medication.discontinuationDays),
+        doctorConfirmed: medication.doctorConfirmed,
+      }));
+    const firstMedicationDiscontinuation = medicationDiscontinuations[0];
     if (bookingModal?.mode === "edit" && editingAppointment) {
       const coreChanged =
         editingAppointment.date !== draft.date ||
@@ -3747,22 +4606,31 @@ function Workbench({
                 bowelPreparation:
                   draft.procedure === "위" ? undefined : draft.bowelPreparation,
                 medication: draft.medicationsChecked ? "완료" : "대기",
+                medicationListMemo: draft.medicationListMemo.trim() || undefined,
+                medicationDiscontinuations:
+                  medicationDiscontinuations.length > 0
+                    ? medicationDiscontinuations
+                    : undefined,
                 medicationDiscontinuationName:
-                  draft.medicationDiscontinuationName.trim() || undefined,
+                  firstMedicationDiscontinuation?.medicationName,
                 medicationDiscontinuationDays:
-                  draft.medicationDiscontinuationDays.trim() === ""
-                    ? undefined
-                    : Number(draft.medicationDiscontinuationDays),
+                  firstMedicationDiscontinuation?.discontinuationDays,
                 medicationDoctorConfirmed:
-                  draft.medicationDoctorConfirmed || undefined,
+                  medicationDiscontinuations.length > 0
+                    ? medicationDiscontinuations.every(
+                        (medication) => medication.doctorConfirmed,
+                      )
+                    : undefined,
                 additionalExaminations: draft.additionalExaminations,
-                deposit: draft.depositPaid ? "완료" : "대기",
+                deposit: draft.depositStatus === "PAID" ? "완료" : "대기",
+                depositUnpaidConfirmed:
+                  draft.depositStatus === "UNPAID" || undefined,
                 depositAmount: draft.depositAmount,
-                depositPaymentMethod: draft.depositPaid && draft.depositPaymentMethod !== "미확인"
+                depositPaymentMethod: draft.depositStatus === "PAID" && draft.depositPaymentMethod !== "미확인"
                   ? draft.depositPaymentMethod
                   : undefined,
                 additionalPrepayment:
-                  draft.depositPaid && draft.additionalPrepayment
+                  draft.depositStatus === "PAID" && draft.additionalPrepayment
                     ? true
                     : undefined,
                 afternoonException:
@@ -3784,56 +4652,39 @@ function Workbench({
           : "예약 변경을 저장했습니다.",
       );
     } else {
-      const newId = `APT-${String(appointments.length + 1).padStart(3, "0")}`;
-      const created: Appointment = {
-        id: newId,
-        date: draft.date,
-        start: draft.start,
-        duration: validation.duration,
-        name: draft.name,
-        chartNumber: draft.chartNumber,
-        dateOfBirth: draft.dateOfBirth,
-        sex: patientSex,
-        careCategory: draft.careCategory,
-        procedure: draft.procedure,
-        procedureSet:
-          draft.procedure === "위·대장" ? draft.procedureSet : undefined,
-        upperSedation: draft.upperSedation,
-        colonSedation: draft.colonSedation,
-        screeningCopay: draft.screeningCopay,
-        bowelPreparation:
-          draft.procedure === "위" ? undefined : draft.bowelPreparation,
-        additionalExaminations: draft.additionalExaminations,
-        deposit: draft.depositPaid ? "완료" : "대기",
+      if (!csrfToken) {
+        throw new ApiError(403, "보안 세션 정보가 없습니다. 다시 로그인해 주세요.");
+      }
+      const patient = await appointmentsApi.findExactPatient(draft);
+      if (!patient) {
+        throw new Error(
+          "등록된 합성 환자와 이름·차트번호·생년월일·성별이 정확히 일치하지 않습니다. 합성 환자 Seed 정보를 확인해 주세요.",
+        );
+      }
+      const response = await appointmentsApi.create(draft, patient.id, csrfToken);
+      const created = {
+        ...mapAppointmentResponse(response),
+        deposit: draft.depositStatus === "PAID" ? "완료" as const : "대기" as const,
+        depositUnpaidConfirmed: draft.depositStatus === "UNPAID" || undefined,
         depositAmount: draft.depositAmount,
-        depositPaymentMethod: draft.depositPaid && draft.depositPaymentMethod !== "미확인"
-          ? draft.depositPaymentMethod
-          : undefined,
+        depositPaymentMethod:
+          draft.depositStatus === "PAID" && draft.depositPaymentMethod !== "미확인"
+            ? draft.depositPaymentMethod
+            : undefined,
         additionalPrepayment:
-          draft.depositPaid && draft.additionalPrepayment ? true : undefined,
-        medication: draft.medicationsChecked ? "완료" : "대기",
-        medicationDiscontinuationName:
-          draft.medicationDiscontinuationName.trim() || undefined,
-        medicationDiscontinuationDays:
-          draft.medicationDiscontinuationDays.trim() === ""
-            ? undefined
-            : Number(draft.medicationDiscontinuationDays),
-        medicationDoctorConfirmed:
-          draft.medicationDoctorConfirmed || undefined,
-        d1: "대기",
-        verification: "대기",
-        pacs: "대기",
-        status: "예약",
-        afternoonException:
-          draft.bucket === "AFTERNOON_EXCEPTION" || undefined,
-        exceptionReason: draft.exceptionReason || undefined,
-        exceptionConfirmedBy: draft.exceptionConfirmedBy || undefined,
-        memo: draft.exceptionMemo || "합성 데이터 Prototype 등록",
+          draft.depositStatus === "PAID" && draft.additionalPrepayment
+            ? true
+            : undefined,
       };
-      setAppointments((current) => [...current, created]);
-      setSelectedId(newId);
+      setBackendAppointments((current) => [
+        ...current.filter((item) => item.id !== created.id),
+        created,
+      ]);
+      setSelectedId(created.id);
+      setCalendarDate(created.date);
       setActiveView("week");
-      notify(`${created.name}님의 합성 예약을 등록했습니다.`);
+      setScheduleRevision((current) => current + 1);
+      notify(`${created.name}님의 예약을 Backend에 저장했습니다.`);
     }
     setBookingModal(null);
   };
@@ -3905,6 +4756,22 @@ function Workbench({
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
+  const normalizedCalendarSearch = search.trim().toLowerCase();
+  const calendarAppointments = backendAppointments.filter((appointment) =>
+    appointment.name.toLowerCase().includes(normalizedCalendarSearch) ||
+    appointment.chartNumber.toLowerCase().includes(normalizedCalendarSearch),
+  );
+
+  const calendarStatus = (
+    <div className={`backend-boundary ${scheduleError ? "is-error" : ""}`} role="status">
+      <span><strong>Backend 일정</strong>{scheduleLoading
+        ? "예약을 불러오는 중입니다."
+        : scheduleError || "로그인 권한으로 조회한 저장 예약입니다."}</span>
+      {scheduleError && <button type="button" className="secondary-button"
+        onClick={() => setScheduleRevision((value) => value + 1)}>다시 조회</button>}
+    </div>
+  );
+
   const renderMainView = () => {
     if (activeView === "today") {
       return (
@@ -3920,22 +4787,33 @@ function Workbench({
     }
     if (activeView === "month") {
       return (
+        <>
+        {calendarStatus}
+        {!scheduleLoading && !scheduleError &&
         <MonthView
-          appointments={appointments}
+          appointments={calendarAppointments}
           calendarDate={calendarDate}
           selectedDate={calendarDate}
           onSelectDate={openDay}
-        />
+        />}
+        </>
       );
     }
     if (activeView === "day") {
       return (
+        <>
+        {calendarStatus}
+        {!scheduleLoading && !scheduleError &&
         <DayView
-          appointments={appointments}
+          appointments={calendarAppointments}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setDrawer({ kind: "appointment", id });
+          }}
           calendarDate={calendarDate}
-        />
+        />}
+        </>
       );
     }
     if (activeView === "confirmation") {
@@ -3980,19 +4858,22 @@ function Workbench({
 
     return (
       <WeekSchedule
-        appointments={appointments}
+        appointments={calendarAppointments}
         selectedId={selectedId}
         onSelect={openAppointmentDetail}
-        search={search}
         calendarDate={calendarDate}
         onSelectDate={openDay}
+        loading={scheduleLoading}
+        loadError={scheduleError}
+        onRetry={() => setScheduleRevision((current) => current + 1)}
       />
     );
   };
 
   const drawerAppointment =
     drawer?.kind === "appointment"
-      ? appointments.find((appointment) => appointment.id === drawer.id)
+      ? backendAppointments.find((appointment) => appointment.id === drawer.id) ??
+        appointments.find((appointment) => appointment.id === drawer.id)
       : undefined;
   const drawerPathology =
     drawer?.kind === "pathology"
@@ -4045,11 +4926,17 @@ function Workbench({
         </div>
         <div className="topbar__actions">
           {canCreateAppointment ? (
-            <button className="primary-button" onClick={openNewBooking}>
-              <Icon name="add" />
-              새 예약
-              <kbd>F2</kbd>
-            </button>
+            <>
+              <button className="same-day-button" onClick={openSameDayUpper}>
+                <Icon name="today" />
+                당일 위내시경
+              </button>
+              <button className="primary-button" onClick={openNewBooking}>
+                <Icon name="add" />
+                새 예약
+                <kbd>F2</kbd>
+              </button>
+            </>
           ) : null}
           <button className="icon-button" title="알림">
             <Icon name="bell" />
@@ -4166,7 +5053,10 @@ function Workbench({
       {bookingModal && (
         <BookingWizard
           appointment={editingAppointment}
-          appointments={appointments}
+          appointments={bookingModal.mode === "edit" ? appointments : backendAppointments}
+          sameDay={bookingModal.mode === "same-day"}
+          canApproveExtension={canApproveExtension}
+          onCreateAdditionalSlot={createSameDayExtension}
           onClose={() => setBookingModal(null)}
           onSave={saveBooking}
         />
@@ -4180,10 +5070,11 @@ function Workbench({
           onVerify={verifySelected}
           onCorrectVerification={correctSelectedVerification}
           onUpdate={(patch) => {
+            if (drawerAppointment.backendManaged) return;
             setAppointments((current) => current.map((item) => item.id === drawerAppointment.id ? { ...item, ...patch } : item));
           }}
-          canEdit={canUpdateAppointment}
-          canVerify={canVerifyIdentity}
+          canEdit={canUpdateAppointment && !drawerAppointment.backendManaged}
+          canVerify={canVerifyIdentity && !drawerAppointment.backendManaged}
         />
       )}
 

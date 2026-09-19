@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.sql.base import ExecutableOption
 
 from app.core.config import Settings
 from app.core.exceptions import ApiError
@@ -45,7 +46,7 @@ def as_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _user_identity_options() -> tuple[object, ...]:
+def _user_identity_options() -> tuple[ExecutableOption, ...]:
     return (
         selectinload(User.role_assignments)
         .selectinload(UserRole.role)
@@ -94,7 +95,7 @@ def authenticate(
 
     try:
         password_is_valid = verify_password(password, user.password_hash)
-    except Exception:
+    except Exception:  # noqa: BLE001 - 손상된 Hash도 인증 실패로만 처리한다.
         password_is_valid = False
 
     if user.locked_until is not None and as_utc(user.locked_until) > now:

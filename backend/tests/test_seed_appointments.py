@@ -13,7 +13,6 @@ from app.cli.seed_patients import seed_synthetic_patients
 from app.core.config import Settings
 from app.models import Appointment, AppointmentHistoryEvent, ScheduleResource
 
-
 PRODUCTION_SETTINGS_ARGUMENTS = {
     "environment": "production",
     "database_url": (

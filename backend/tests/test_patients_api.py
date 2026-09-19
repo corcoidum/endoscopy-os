@@ -18,7 +18,6 @@ from app.models import (
 )
 from tests.conftest import TEST_ORIGIN, login_admin
 
-
 SYNTHETIC_PATIENT = {
     "chart_number": "SYN-0012",
     "name": "합성해솔",

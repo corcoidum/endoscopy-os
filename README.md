@@ -126,11 +126,14 @@ Repository Root에서 다음 순서로 실행합니다.
 
 ```powershell
 Push-Location backend
+.\.venv\Scripts\ruff.exe check app tests
+.\.venv\Scripts\mypy.exe
 .\.venv\Scripts\pytest.exe -q
 .\.venv\Scripts\python.exe -m pip check
 Pop-Location
 
 Push-Location frontend
+npm run lint
 npm run typecheck
 npm run build
 Pop-Location

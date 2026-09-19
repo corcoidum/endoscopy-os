@@ -30,7 +30,6 @@ from app.models import (
     UserRole,
 )
 
-
 TEST_ORIGIN = "https://clinic.test"
 ADMIN_PASSWORD = "Synthetic-Admin-Password-42!"
 
@@ -67,7 +66,7 @@ class SeededIdentity:
 
 
 @pytest.fixture
-def session_factory() -> Generator[sessionmaker[Session], None, None]:
+def session_factory() -> Generator[sessionmaker[Session]]:
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -155,10 +154,10 @@ def client(
     session_factory: sessionmaker[Session],
     seeded_identity: SeededIdentity,
     test_settings: Settings,
-) -> Generator[TestClient, None, None]:
+) -> Generator[TestClient]:
     app = create_app(test_settings)
 
-    def override_get_db() -> Generator[Session, None, None]:
+    def override_get_db() -> Generator[Session]:
         with session_factory() as db:
             try:
                 yield db

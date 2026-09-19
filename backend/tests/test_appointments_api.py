@@ -10,10 +10,6 @@ from app.models import Appointment, AppointmentHistoryEvent
 from tests.conftest import (
     BOOKING_DAY,
     CLOSED_SUNDAY,
-    FAR_FUTURE_DAY,
-    NEXT_BOOKING_DAY,
-    OVERRIDE_DAY,
-    SHORT_DAY,
     TEST_ORIGIN,
     iso,
     login_admin,

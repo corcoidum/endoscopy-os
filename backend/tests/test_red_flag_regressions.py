@@ -16,7 +16,7 @@ from tests.conftest import login_admin
 
 
 def test_to_seoul_handles_naive_and_utc_values() -> None:
-    naive = datetime(2026, 9, 10, 9, 0)
+    naive = datetime(2026, 9, 10, 9, 0)  # noqa: DTZ001 - naive 입력을 의도적으로 만든다.
     utc_value = datetime(2026, 9, 10, 0, 0, tzinfo=UTC)
 
     assert to_seoul(naive).time() == time(9, 0)

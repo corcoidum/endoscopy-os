@@ -30,7 +30,6 @@ from app.main import create_app
 from app.models import User, UserRole
 from tests.conftest import ADMIN_PASSWORD, BOOKING_DAY, TEST_ORIGIN, iso
 
-
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # `user_sessions.created_ip`가 PostgreSQL `inet`이므로 실제 IP 형식을 쓴다.
@@ -125,7 +124,7 @@ def postgres_app(postgres_session_factory: sessionmaker[Session]) -> FastAPI:
         )
     )
 
-    def override_get_db() -> Generator[Session, None, None]:
+    def override_get_db() -> Generator[Session]:
         with postgres_session_factory() as db:
             try:
                 yield db

@@ -32,7 +32,7 @@ from app.schemas.patient import (
     SexCode,
 )
 from app.services import patients as patient_service
-
+from app.services.appointments import today_in_seoul
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 patient_reader = require_permission("patient.read")
@@ -41,7 +41,8 @@ patient_updater = require_permission("patient.update")
 
 
 def _reference_date(value: date | None) -> date:
-    return value or date.today()
+    # Server Timezone과 무관하게 원내 기준(서울) 날짜를 쓴다.
+    return value or today_in_seoul()
 
 
 def _duplicate_warning(
@@ -166,7 +167,7 @@ def create_patient(
             code="CHART_NUMBER_DUPLICATE",
             message="이미 등록된 차트번호입니다. 기존 환자를 확인해 주세요.",
         ) from exc
-    effective_date = date.today()
+    effective_date = today_in_seoul()
     return PatientMutationResponse(
         patient=present_patient_detail(
             record,
@@ -273,7 +274,7 @@ def update_patient(
             code="CHART_NUMBER_DUPLICATE",
             message="이미 등록된 차트번호입니다. 기존 환자를 확인해 주세요.",
         ) from exc
-    effective_date = date.today()
+    effective_date = today_in_seoul()
     return PatientMutationResponse(
         patient=present_patient_detail(
             record,
@@ -313,7 +314,7 @@ def update_patient_activation(
     return PatientMutationResponse(
         patient=present_patient_detail(
             record,
-            reference_date=date.today(),
+            reference_date=today_in_seoul(),
             age_method="FULL_AGE",
         )
     )

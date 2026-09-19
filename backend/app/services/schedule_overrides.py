@@ -19,7 +19,6 @@ from app.services.appointments import (
     resolve_day_policy,
 )
 
-
 MAX_OVERRIDE_LIST_DAYS = 366
 MAX_DAY_POLICY_DAYS = 62
 

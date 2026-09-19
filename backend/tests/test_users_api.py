@@ -4,8 +4,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete
 from sqlalchemy.orm import Session, sessionmaker
 
-from tests.conftest import TEST_ORIGIN, login_admin
 from app.models import RolePermission
+from tests.conftest import TEST_ORIGIN, login_admin
 
 
 def test_identity_manager_can_list_and_create_user(client: TestClient) -> None:

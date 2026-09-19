@@ -6,7 +6,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
-
 ProcedureCode = Literal["UPPER", "COLON"]
 ProcedureSet = Literal["SET_60", "SET_90"]
 SedationMode = Literal["SEDATED", "NON_SEDATED"]

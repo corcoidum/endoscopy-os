@@ -13,9 +13,14 @@ from app.core.config import get_settings
 from app.core.exceptions import ApiError
 from app.db.session import get_session_factory
 from app.models import Appointment, Patient, User
-from app.schemas.appointment import AppointmentProcedureInput
+from app.schemas.appointment import (
+    AppointmentProcedureInput,
+    CareType,
+    ProcedureCode,
+    ProcedureSet,
+    SedationMode,
+)
 from app.services.appointments import create_appointment, to_seoul
-
 
 DEFAULT_START_DATE = date(2026, 9, 1)
 DEFAULT_END_DATE = date(2026, 9, 19)
@@ -26,9 +31,9 @@ SYNTHETIC_CHART_NUMBERS = tuple(f"SYN-PT-{index:04d}" for index in range(1, 5))
 @dataclass(frozen=True)
 class AppointmentTemplate:
     start_time: time
-    procedure_codes: tuple[str, ...]
-    sedation_modes: tuple[str, ...]
-    procedure_set: str | None = None
+    procedure_codes: tuple[ProcedureCode, ...]
+    sedation_modes: tuple[SedationMode, ...]
+    procedure_set: ProcedureSet | None = None
 
 
 @dataclass(frozen=True)
@@ -36,9 +41,9 @@ class SyntheticAppointmentSpec:
     service_date: date
     start_time: time
     chart_number: str
-    care_type: str
+    care_type: CareType
     procedures: tuple[AppointmentProcedureInput, ...]
-    procedure_set: str | None = None
+    procedure_set: ProcedureSet | None = None
 
 
 @dataclass

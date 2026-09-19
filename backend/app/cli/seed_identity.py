@@ -20,7 +20,6 @@ from app.models import (
     UserRole,
 )
 
-
 PERMISSIONS: dict[str, str] = {
     "appointment.read": "일정과 예약 조회",
     "appointment.create": "예약 생성",

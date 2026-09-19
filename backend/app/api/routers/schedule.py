@@ -26,9 +26,8 @@ from app.schemas.schedule import (
     ScheduleOverrideResponse,
     ScheduleOverrideRevokeRequest,
 )
-from app.services import schedule_overrides as override_service
 from app.services import additional_slots as additional_slot_service
-
+from app.services import schedule_overrides as override_service
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 schedule_reader = require_permission("appointment.read")

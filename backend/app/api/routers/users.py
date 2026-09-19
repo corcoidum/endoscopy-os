@@ -21,7 +21,6 @@ from app.schemas.identity import (
 )
 from app.services import users as user_service
 
-
 router = APIRouter(prefix="/users", tags=["users"])
 identity_manager = require_permission("identity.manage")
 

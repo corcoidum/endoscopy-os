@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,10 +10,18 @@ from app.cli import reject_production_environment
 from app.core.config import Settings, get_settings
 from app.db.session import get_session_factory
 from app.models import Patient, User
+from app.schemas.patient import SexCode
 from app.services.patients import create_patient
 
 
-SYNTHETIC_PATIENTS = (
+class SyntheticPatient(TypedDict):
+    chart_number: str
+    name: str
+    birth_date: date
+    sex: SexCode
+
+
+SYNTHETIC_PATIENTS: tuple[SyntheticPatient, ...] = (
     {
         "chart_number": "SYN-PT-0001",
         "name": "합성가람",

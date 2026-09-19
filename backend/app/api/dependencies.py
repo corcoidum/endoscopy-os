@@ -22,7 +22,6 @@ from app.services.auth import (
     touch_session,
 )
 
-
 SESSION_EXPIRES_AT_HEADER = "X-Session-Expires-At"
 
 

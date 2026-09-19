@@ -4,8 +4,8 @@ from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.appointment_presenters import (
@@ -33,7 +33,6 @@ from app.schemas.appointment import (
 )
 from app.schemas.common import ErrorResponse
 from app.services import appointments as appointment_service
-
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 appointment_reader = require_permission("appointment.read")

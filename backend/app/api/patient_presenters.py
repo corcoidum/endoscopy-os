@@ -29,7 +29,7 @@ def present_patient_summary(
         chart_number=patient.chart_number,
         name=patient.name,
         birth_date=patient.birth_date,
-        sex=patient.sex,  # type: ignore[arg-type]
+        sex=patient.sex,
         age=calculate_age(patient.birth_date, reference_date, age_method),
         age_method=age_method,
         age_reference_date=reference_date,
@@ -67,7 +67,7 @@ def present_patient_history(
     event = record.event
     return PatientHistoryEventResponse(
         id=event.id,
-        event_type=event.event_type,  # type: ignore[arg-type]
+        event_type=event.event_type,
         changed_fields=event.changed_fields,
         before_values=event.before_values,
         after_values=event.after_values,

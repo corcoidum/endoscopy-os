@@ -1,0 +1,42 @@
+# Backend 정적 분석 설정. 실행은 scripts/verify.ps1이 함께 수행한다.
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+extend-exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+# 서식(E1/E5)은 기존 Code 폭을 존중해 제외하고, 버그로 이어지는 규칙만 켠다.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "DTZ", "BLE", "RUF"]
+# 한국어 주석·문자열에 쓰는 활자(·, −)와 NFKC 정규화 Test의 전각 문자를 허용한다.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI는 의존성을 인자 기본값으로 선언한다. B008의 대상이 아니다.
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+    "fastapi.Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# SQLAlchemy Declarative의 `__table_args__`는 Mutable Class 속성이어야 한다.
+"app/models/*.py" = ["RUF012"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["app"]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true

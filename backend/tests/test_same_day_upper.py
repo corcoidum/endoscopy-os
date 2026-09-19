@@ -16,7 +16,6 @@ from app.services.appointments import (
 )
 from tests.conftest import SeededIdentity
 
-
 UPPER = [
     AppointmentProcedureInput(
         procedure_code="UPPER",

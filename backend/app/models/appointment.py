@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     Date,
@@ -11,7 +13,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,
     SmallInteger,
     String,
     Text,
@@ -24,6 +25,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.iam import IAM_SCHEMA
+
+if TYPE_CHECKING:
+    # Relationship 대상은 SQLAlchemy Registry가 Runtime에 해석한다.
+    from app.models.patient import Patient
 
 
 class ScheduleResource(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -382,7 +387,7 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     resource: Mapped[ScheduleResource] = relationship()
     additional_slot: Mapped[ScheduleAdditionalSlot | None] = relationship()
-    patient: Mapped["Patient"] = relationship()
+    patient: Mapped[Patient] = relationship()
     procedures: Mapped[list[AppointmentProcedure]] = relationship(
         back_populates="appointment",
         cascade="all, delete-orphan",

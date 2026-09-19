@@ -1145,172 +1145,6 @@ function WeekSchedule({
   );
 }
 
-function Inspector({
-  appointment,
-  onOpen,
-  onEdit,
-  onVerify,
-  canEdit,
-  canVerify,
-}: {
-  appointment?: Appointment;
-  onOpen: () => void;
-  onEdit: () => void;
-  onVerify: () => void;
-  canEdit: boolean;
-  canVerify: boolean;
-}) {
-  if (!appointment) {
-    return (
-      <section className="inspector inspector--empty">
-        예약 카드를 선택하면 핵심 확인 상태가 표시됩니다.
-      </section>
-    );
-  }
-
-  const age = calculateAge(
-    appointment.dateOfBirth,
-    appointment.date,
-    appointment.careCategory,
-  );
-
-  return (
-    <section className="inspector" aria-label="선택 예약 Inspector">
-      <div className="inspector__accent" />
-      <div className="inspector__identity">
-        <span className="eyebrow">선택됨</span>
-        <div className="patient-heading">
-          <span className="avatar">{appointment.name.slice(0, 1)}</span>
-          <div>
-            <h2>
-              {appointment.name}
-              <span className="demographic-badge">
-                {appointment.careCategory === "검진" ? age : `만 ${age}`} ·{" "}
-                {appointment.sex}
-              </span>
-            </h2>
-            <p>
-              {appointment.chartNumber}
-              <span>·</span>
-              {appointment.careCategory}
-            </p>
-          </div>
-        </div>
-        <button className="secondary-button" onClick={onOpen}>
-          <Icon name="patient" />
-          환자 상세
-        </button>
-      </div>
-
-      <div className="inspector__section">
-        <span className="inspector__title">예약 정보</span>
-        <dl className="compact-definition">
-          <div>
-            <dt>일시</dt>
-            <dd>
-              {formatDateKorean(appointment.date)} {appointment.start} ·{" "}
-              {appointment.duration}분
-            </dd>
-          </div>
-          <div>
-            <dt>검사</dt>
-            <dd>{procedureLabel(appointment)}</dd>
-          </div>
-          <div>
-            <dt>유형</dt>
-            <dd>{appointment.careCategory}</dd>
-          </div>
-          {appointment.afternoonException && (
-            <div>
-              <dt>구분</dt>
-              <dd>
-                <span className="inline-badge inline-badge--exception">
-                  오후 예외
-                </span>
-              </dd>
-            </div>
-          )}
-        </dl>
-      </div>
-
-      <div className="inspector__section">
-        <span className="inspector__title">핵심 확인 상태</span>
-        <ul className="check-list">
-          <li>
-            <Icon name="medication" />
-            약제확인
-            <StateLabel state={appointment.medication} />
-          </li>
-          <li>
-            <Icon name="phone" />
-            D-1 확인
-            <StateLabel state={appointment.d1} />
-          </li>
-          <li>
-            <Icon name="shield" />
-            이중확인
-            <StateLabel state={appointment.verification} />
-          </li>
-          <li>
-            <Icon name="deposit" />
-            예약금
-            <StateLabel state={appointment.deposit} />
-          </li>
-        </ul>
-      </div>
-
-      <div className="inspector__section inspector__section--preparation">
-        <span className="inspector__title">준비 / 안내</span>
-        <dl className="compact-definition">
-          <div>
-            <dt>장정결</dt>
-            <dd>{appointment.bowelPreparation ?? "해당 없음"}</dd>
-          </div>
-          <div>
-            <dt>본인부담</dt>
-            <dd>{appointment.screeningCopay ?? "해당 없음"}</dd>
-          </div>
-          <div>
-            <dt>PACS</dt>
-            <dd>
-              <StateLabel state={appointment.pacs} />
-            </dd>
-          </div>
-        </dl>
-      </div>
-
-      <div className="inspector__actions">
-        <span className="inspector__title">빠른 작업</span>
-        <button className="secondary-button secondary-button--wide" onClick={onOpen}>
-          <Icon name="detail" />
-          상세 열기
-          <kbd>Enter</kbd>
-        </button>
-        {canEdit ? (
-          <button
-            className="secondary-button secondary-button--wide"
-            onClick={onEdit}
-          >
-            <Icon name="edit" />
-            예약 변경
-            <kbd>F4</kbd>
-          </button>
-        ) : null}
-        {canVerify ? (
-          <button
-            className="primary-button primary-button--wide"
-            onClick={onVerify}
-          >
-            <Icon name="check" />
-            2차 확인
-            <kbd>F6</kbd>
-          </button>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
 function StateLabel({ state }: { state: CheckState }) {
   return (
     <span className={`state-label state-label--${checkTone(state)}`}>
@@ -1836,51 +1670,6 @@ function PathologyLedger({
               <span>{pathologyCase.patientNotified ? "완료" : "대기"}</span>
               <span>{pathologyCase.followUpDate ?? "해당 없음"}</span>
             </button>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PatientHistoryView({ appointments }: { appointments: Appointment[] }) {
-  const patients = Array.from(
-    new Map(appointments.map((appointment) => [appointment.chartNumber, appointment])).values(),
-  );
-  return (
-    <section className="view-surface">
-      <div className="view-title">
-        <div>
-          <span className="eyebrow">환자 검색 · 과거 예약</span>
-          <h1>환자 History</h1>
-          <p>이름만으로 판단하지 않고 차트번호·생년월일·성별을 함께 확인합니다.</p>
-        </div>
-      </div>
-      <div className="table-card">
-        <div className="data-table data-table--patients">
-          <div className="data-table__head">
-            <span>환자</span>
-            <span>차트번호</span>
-            <span>생년월일</span>
-            <span>나이 · 성별</span>
-            <span>최근 검사</span>
-            <span>취소</span>
-            <span>No-show</span>
-          </div>
-          {patients.slice(0, 12).map((patient, index) => (
-            <div className="data-table__row" key={patient.chartNumber}>
-              <span>
-                <strong>{patient.name}</strong>
-              </span>
-              <span>{patient.chartNumber}</span>
-              <span>{patient.dateOfBirth}</span>
-              <span>{formatAgeSex(patient)}</span>
-              <span>
-                {patient.date} · {patient.procedure}
-              </span>
-              <span>{index % 4 === 0 ? 1 : 0}회</span>
-              <span>{index % 7 === 0 ? 1 : 0}회</span>
-            </div>
           ))}
         </div>
       </div>
@@ -2472,6 +2261,8 @@ function BookingWizard({
   const dialogRef = useRef<HTMLDivElement>(null);
   const birthDatePickerRef = useRef<HTMLInputElement>(null);
 
+  // appointment은 존재 여부와 id만 쓰므로 `appointment?.id` 하나로
+  // 두 변화를 모두 따라간다.
   const validation = useMemo(
     () =>
       appointment
@@ -2532,6 +2323,8 @@ function BookingWizard({
         ? remaining
         : [
             {
+              // Render가 아니라 삭제 Handler가 실행될 때 평가된다.
+              // oxlint-disable-next-line react/purity
               id: `medication-${Date.now()}`,
               medicationName: "",
               discontinuationDays: "",
@@ -2573,6 +2366,8 @@ function BookingWizard({
         const starts = response.slots.map((slot) => slot.start_time.slice(0, 5));
         // 고른 시각이 아직 가능하면 그대로 두고, 아니면 첫 Slot으로 옮긴다.
         // 연장 Slot ID는 어느 쪽이든 고른 시각과 항상 짝을 맞춘다.
+        // draft 전체를 의존성에 넣으면 입력할 때마다 재조회한다. Callback은 항상
+        // 최신 Render의 것이라 여기서 읽는 draft 값도 최신이다.
         const index = Math.max(starts.indexOf(draft.start), 0);
         const slotId = response.slots[index].additional_slot_id ?? undefined;
         setDraft((current) =>

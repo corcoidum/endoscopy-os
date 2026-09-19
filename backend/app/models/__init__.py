@@ -1,5 +1,13 @@
 """Import every model here so Alembic sees complete Base.metadata."""
 
+from app.models.appointment import (
+    Appointment,
+    AppointmentHistoryEvent,
+    AppointmentProcedure,
+    ScheduleAdditionalSlot,
+    ScheduleDateOverride,
+    ScheduleResource,
+)
 from app.models.iam import (
     IAM_SCHEMA,
     Permission,
@@ -10,31 +18,23 @@ from app.models.iam import (
     UserRole,
     UserSession,
 )
-from app.models.appointment import (
-    Appointment,
-    AppointmentHistoryEvent,
-    AppointmentProcedure,
-    ScheduleAdditionalSlot,
-    ScheduleDateOverride,
-    ScheduleResource,
-)
 from app.models.patient import Patient, PatientHistoryEvent
 
 __all__ = [
     "IAM_SCHEMA",
+    "Appointment",
+    "AppointmentHistoryEvent",
+    "AppointmentProcedure",
+    "Patient",
+    "PatientHistoryEvent",
     "Permission",
     "Role",
     "RolePermission",
+    "ScheduleAdditionalSlot",
+    "ScheduleDateOverride",
+    "ScheduleResource",
     "StaffProfile",
     "User",
     "UserRole",
     "UserSession",
-    "Appointment",
-    "AppointmentHistoryEvent",
-    "AppointmentProcedure",
-    "ScheduleAdditionalSlot",
-    "ScheduleDateOverride",
-    "ScheduleResource",
-    "Patient",
-    "PatientHistoryEvent",
 ]

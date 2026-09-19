@@ -6,7 +6,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-import app.models  # noqa: F401  # Alembic과 Runtime이 동일한 metadata를 사용한다.
+# Alembic과 Runtime이 동일한 metadata를 사용한다. `app = create_app()`가 Module
+# 이름을 가리지 않도록 Submodule만 가져온다.
+from app import models  # noqa: F401
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import ApiError, register_exception_handlers

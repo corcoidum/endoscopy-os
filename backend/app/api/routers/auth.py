@@ -11,7 +11,9 @@ from app.api.dependencies import (
 )
 from app.api.presenters import present_authenticated_user
 from app.core.config import Settings, get_settings
+from app.core.exceptions import ApiError
 from app.core.network import resolve_client_ip
+from app.core.rate_limit import LoginFailureThrottle
 from app.db.session import get_db
 from app.schemas.common import ErrorResponse, MessageResponse
 from app.schemas.identity import (
@@ -20,15 +22,12 @@ from app.schemas.identity import (
     LoginRequest,
     LoginResponse,
 )
-from app.core.exceptions import ApiError
-from app.core.rate_limit import LoginFailureThrottle
 from app.services.auth import (
     authenticate,
     change_password,
     issue_csrf_token,
     revoke_session,
 )
-
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

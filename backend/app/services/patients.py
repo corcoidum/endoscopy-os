@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, date, datetime
 import re
 import unicodedata
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import String, func, or_, select
+from sqlalchemy import ColumnElement, String, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.exceptions import ApiError
 from app.models import Patient, PatientHistoryEvent, User
 from app.schemas.patient import AgeMethod, SexCode
-
+from app.services.appointments import today_in_seoul
 
 PHONE_PATTERN = re.compile(r"^[0-9+() -]+$")
 PATIENT_EDITABLE_FIELDS = {
@@ -102,7 +102,8 @@ def normalize_special_notes(value: str | None) -> str | None:
 
 
 def validate_birth_date(value: date) -> None:
-    if value > date.today():
+    # 서울 기준 오늘까지는 유효한 생년월일이다.
+    if value > today_in_seoul():
         raise ApiError(
             status_code=422,
             code="BIRTH_DATE_IN_FUTURE",
@@ -144,7 +145,7 @@ def search_patients(
     limit: int,
     offset: int,
 ) -> PatientSearchResult:
-    filters = []
+    filters: list[ColumnElement[bool]] = []
     if not include_inactive:
         filters.append(Patient.is_active.is_(True))
     if query and query.strip():

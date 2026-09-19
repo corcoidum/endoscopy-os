@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.appointment import BookingBucket, ProcedureCode, ReasonText
 
-
 OverrideRuleType = Literal["CLOSED", "OPERATING_HOURS", "CAPACITY", "AFTERNOON_ALLOW"]
 OverrideStatus = Literal["PENDING", "APPROVED", "REVOKED", "SUPERSEDED"]
 PolicyConflictIssue = Literal[

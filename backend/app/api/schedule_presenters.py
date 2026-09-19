@@ -25,11 +25,11 @@ def present_conflict(conflict: PolicyConflict) -> ImpactedAppointmentResponse:
         id=appointment.id,
         start_time=to_seoul(appointment.scheduled_start_at).time().replace(tzinfo=None),
         end_time=to_seoul(appointment.scheduled_end_at).time().replace(tzinfo=None),
-        booking_bucket=appointment.booking_bucket,  # type: ignore[arg-type]
+        booking_bucket=appointment.booking_bucket,
         procedures=sorted(
-            item.procedure_code for item in appointment.procedures  # type: ignore[misc]
+            item.procedure_code for item in appointment.procedures
         ),
-        issue=conflict.issue,  # type: ignore[arg-type]
+        issue=conflict.issue,
     )
 
 

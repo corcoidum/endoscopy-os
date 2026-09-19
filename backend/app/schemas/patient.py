@@ -6,7 +6,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-
 SexCode = Literal["MALE", "FEMALE"]
 AgeMethod = Literal["FULL_AGE", "SCREENING_YEAR_AGE"]
 

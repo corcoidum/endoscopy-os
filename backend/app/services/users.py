@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql.base import ExecutableOption
 
 from app.core.exceptions import ApiError
 from app.core.security import hash_password, normalize_login_id
@@ -19,7 +20,7 @@ from app.models import (
 from app.services.auth import revoke_all_user_sessions
 
 
-def _user_options() -> tuple[object, ...]:
+def _user_options() -> tuple[ExecutableOption, ...]:
     return (
         selectinload(User.role_assignments)
         .selectinload(UserRole.role)

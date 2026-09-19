@@ -8,7 +8,6 @@ from functools import lru_cache
 
 from pwdlib import PasswordHash
 
-
 PASSWORD_HASHER = PasswordHash.recommended()
 SESSION_TOKEN_BYTES = 32
 

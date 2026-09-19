@@ -29,7 +29,6 @@ from tests.conftest import (
     login_admin,
 )
 
-
 SCHEDULING_PERMISSIONS = (
     "appointment.update",
     "appointment.cancel",

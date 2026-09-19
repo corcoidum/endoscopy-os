@@ -4,8 +4,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from tests.conftest import ADMIN_PASSWORD, TEST_ORIGIN, login_admin
 from app.models import User
+from tests.conftest import ADMIN_PASSWORD, TEST_ORIGIN, login_admin
 
 
 def test_login_me_keeps_csrf_stable_across_tabs_and_logout(

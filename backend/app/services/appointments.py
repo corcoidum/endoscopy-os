@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, selectinload
@@ -26,7 +26,6 @@ from app.schemas.appointment import (
     ProcedureCode,
     ProcedureSet,
 )
-
 
 SEOUL = ZoneInfo("Asia/Seoul")
 DEFAULT_RESOURCE_CODE = "ENDOSCOPY_MAIN"
@@ -600,7 +599,7 @@ def available_slots(
             policy.policy_version,
         )
 
-    slots: list[tuple[time, time]] = []
+    slots = []
     for start_minute in range(
         policy.morning.start_minute,
         policy.morning.end_minute,
@@ -927,7 +926,7 @@ def change_appointment(
         _reject_past_service_date(new_date, now=now)
     new_start_time = start_time or old_start.time().replace(tzinfo=None)
     new_care_type = care_type or appointment.care_type
-    new_sedation = (
+    new_sedation: dict[str, str] = (
         {item.procedure_code: item.sedation_mode for item in procedures}
         if procedures is not None
         else dict(old_sedation)

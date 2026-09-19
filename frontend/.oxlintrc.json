@@ -1,5 +1,10 @@
 {
-  "plugins": ["react", "import", "typescript", "oxc"],
+  "plugins": [
+    "react",
+    "import",
+    "typescript",
+    "oxc"
+  ],
   "categories": {
     "correctness": "error"
   },
@@ -8,12 +13,20 @@
   },
   "overrides": [
     {
-      "files": ["src/App.tsx", "src/auth.tsx", "src/PatientWorkspace.tsx"],
+      "files": [
+        "src/App.tsx",
+        "src/BookingWizard.tsx",
+        "src/PatientWorkspace.tsx",
+        "src/auth.tsx"
+      ],
       "rules": {
         "react/set-state-in-effect": "off",
         "react-hooks/exhaustive-deps": "off"
       }
     }
   ],
-  "ignorePatterns": ["dist", "node_modules"]
+  "ignorePatterns": [
+    "dist",
+    "node_modules"
+  ]
 }

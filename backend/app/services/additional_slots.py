@@ -14,14 +14,12 @@ from app.services.appointments import (
     SLOT_MINUTES,
     available_slots,
     get_default_resource,
+    intervals_overlap,
     lock_schedule_date,
     resolve_day_policy,
+    time_to_minutes,
     to_seoul,
 )
-
-
-def _minutes(value: time) -> int:
-    return value.hour * 60 + value.minute
 
 
 def _on_grid(value: time) -> bool:
@@ -32,18 +30,19 @@ def _on_grid(value: time) -> bool:
     )
 
 
-def _overlaps(start: int, end: int, other_start: int, other_end: int) -> bool:
-    return start < other_end and other_start < end
-
-
 def list_additional_slots(
-    db: Session, *, service_date: date
+    db: Session, *, service_date: date, include_revoked: bool = False
 ) -> list[ScheduleAdditionalSlot]:
+    """취소된 Slot은 기본적으로 감춘다. 이력 확인이 필요할 때만 함께 돌려준다."""
+
+    statement = select(ScheduleAdditionalSlot).where(
+        ScheduleAdditionalSlot.service_date == service_date
+    )
+    if not include_revoked:
+        statement = statement.where(ScheduleAdditionalSlot.status == "APPROVED")
     return list(
         db.scalars(
-            select(ScheduleAdditionalSlot)
-            .where(ScheduleAdditionalSlot.service_date == service_date)
-            .order_by(ScheduleAdditionalSlot.start_time)
+            statement.order_by(ScheduleAdditionalSlot.start_time)
         ).all()
     )
 
@@ -77,9 +76,9 @@ def create_additional_slot(
             code="SCHEDULE_CLOSED",
             message="휴진일에는 당일 연장 슬롯을 개설할 수 없습니다.",
         )
-    start_minute = _minutes(start_time)
+    start_minute = time_to_minutes(start_time)
     end_minute = start_minute + SLOT_MINUTES
-    if start_minute < policy.morning.end_minute or end_minute > _minutes(AFTERNOON_START):
+    if start_minute < policy.morning.end_minute or end_minute > time_to_minutes(AFTERNOON_START):
         raise ApiError(
             status_code=422,
             code="ADDITIONAL_SLOT_OUTSIDE_EXTENSION_WINDOW",
@@ -91,6 +90,11 @@ def create_additional_slot(
             code="ADDITIONAL_SLOT_IN_PAST",
             message="이미 지난 시각에는 당일 연장 슬롯을 개설할 수 없습니다.",
         )
+
+    # 남은 일반 Slot 계산부터 Slot 저장까지를 같은 날짜 기준으로 직렬화한다.
+    # 잠금 전에 검사하면 동시 요청 두 건이 모두 통과할 수 있다.
+    resource = get_default_resource(db)
+    lock_schedule_date(db, service_date)
 
     _, standard_slots, _ = available_slots(
         db,
@@ -107,8 +111,6 @@ def create_additional_slot(
             message="사용 가능한 일반 30분 슬롯이 있어 연장 슬롯을 열 수 없습니다.",
         )
 
-    resource = get_default_resource(db)
-    lock_schedule_date(db, service_date)
     appointments = list(
         db.scalars(
             select(Appointment).where(
@@ -119,11 +121,11 @@ def create_additional_slot(
         ).all()
     )
     if any(
-        _overlaps(
+        intervals_overlap(
             start_minute,
             end_minute,
-            _minutes(to_seoul(item.scheduled_start_at).time()),
-            _minutes(to_seoul(item.scheduled_end_at).time()),
+            time_to_minutes(to_seoul(item.scheduled_start_at).time()),
+            time_to_minutes(to_seoul(item.scheduled_end_at).time()),
         )
         for item in appointments
     ):
@@ -142,11 +144,11 @@ def create_additional_slot(
         ).all()
     )
     if any(
-        _overlaps(
+        intervals_overlap(
             start_minute,
             end_minute,
-            _minutes(item.start_time),
-            _minutes(item.end_time),
+            time_to_minutes(item.start_time),
+            time_to_minutes(item.end_time),
         )
         for item in existing_slots
     ):
@@ -216,4 +218,3 @@ def revoke_additional_slot(
     slot.revoke_reason = reason.strip()
     db.flush()
     return slot
-    available_slots,

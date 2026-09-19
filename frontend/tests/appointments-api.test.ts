@@ -132,6 +132,35 @@ test("가능 슬롯 조회는 날짜·검사·세트·예약 구분을 query로 
   assert.equal(result.slots[0].start_time, "09:00:00");
 });
 
+test("가능 슬롯 조회는 이미 고른 연장 슬롯으로 목록을 좁히지 않는다", async (t) => {
+  let requestedUrl = "";
+  t.mock.method(globalThis, "fetch", async (input) => {
+    requestedUrl = String(input);
+    return new Response(
+      JSON.stringify({
+        service_date: draft.date,
+        booking_bucket: "SAME_DAY_EXTENSION",
+        duration_minutes: 30,
+        procedure_set: null,
+        schedule_policy_version: "BASE-test",
+        slots: [],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  });
+
+  await appointmentsApi.availability({
+    ...draft,
+    procedure: "위",
+    bucket: "SAME_DAY_EXTENSION",
+    bookingOrigin: "SAME_DAY",
+    additionalSlotId: "slot-already-selected",
+  });
+  const url = new URL(requestedUrl, "http://localhost");
+  assert.equal(url.searchParams.get("additional_slot_id"), null);
+  assert.equal(url.searchParams.get("booking_bucket"), "SAME_DAY_EXTENSION");
+});
+
 test("당일 위내시경은 안전 확인과 당일 출처를 생성 payload에 포함한다", async (t) => {
   let body: Record<string, unknown> = {};
   t.mock.method(globalThis, "fetch", async (_input, init) => {

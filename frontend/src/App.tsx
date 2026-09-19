@@ -2569,14 +2569,17 @@ function BookingWizard({
       .then((response) => {
         if (cancelled) return;
         setAvailability(response);
+        if (response.slots.length === 0) return;
         const starts = response.slots.map((slot) => slot.start_time.slice(0, 5));
-        if (starts.length > 0 && !starts.includes(draft.start)) {
-          setDraft((current) => ({
-            ...current,
-            start: starts[0],
-            additionalSlotId: response.slots[0].additional_slot_id ?? undefined,
-          }));
-        }
+        // 고른 시각이 아직 가능하면 그대로 두고, 아니면 첫 Slot으로 옮긴다.
+        // 연장 Slot ID는 어느 쪽이든 고른 시각과 항상 짝을 맞춘다.
+        const index = Math.max(starts.indexOf(draft.start), 0);
+        const slotId = response.slots[index].additional_slot_id ?? undefined;
+        setDraft((current) =>
+          current.start === starts[index] && current.additionalSlotId === slotId
+            ? current
+            : { ...current, start: starts[index], additionalSlotId: slotId },
+        );
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -2601,7 +2604,6 @@ function BookingWizard({
     draft.colonSedation,
     draft.bucket,
     draft.bookingOrigin,
-    draft.additionalSlotId,
     availabilityRevision,
   ]);
 

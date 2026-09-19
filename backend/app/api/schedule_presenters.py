@@ -10,7 +10,7 @@ from app.schemas.schedule import (
 from app.services.appointments import (
     PolicyConflict,
     ResolvedDayPolicy,
-    _minutes_to_time,
+    minutes_to_time,
     to_seoul,
 )
 
@@ -47,8 +47,8 @@ def present_day_policy(policy: ResolvedDayPolicy) -> DayPolicyResponse:
     return DayPolicyResponse(
         service_date=policy.service_date,
         closed=policy.closed,
-        morning_start_time=_minutes_to_time(morning.start_minute) if morning else None,
-        morning_end_time=_minutes_to_time(morning.end_minute) if morning else None,
+        morning_start_time=minutes_to_time(morning.start_minute) if morning else None,
+        morning_end_time=minutes_to_time(morning.end_minute) if morning else None,
         upper_capacity=morning.upper_capacity if morning else None,
         colon_capacity=morning.colon_capacity if morning else None,
         afternoon_allowed=policy.afternoon_allowed,

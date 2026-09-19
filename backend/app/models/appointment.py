@@ -166,11 +166,16 @@ class ScheduleAdditionalSlot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND revoke_reason IS NOT NULL)",
             name="revocation_metadata",
         ),
-        UniqueConstraint(
+        # 같은 시각을 선점하는 것은 승인된 Slot뿐이다. 취소된 Slot이 남아 있어도
+        # 같은 시각에 새 연장 Slot을 다시 열 수 있어야 한다.
+        Index(
+            "uq_schedule_additional_slots_approved_start",
             "resource_id",
             "service_date",
             "start_time",
-            name="uq_schedule_additional_slots_resource_date_start",
+            unique=True,
+            postgresql_where=text("status = 'APPROVED'"),
+            sqlite_where=text("status = 'APPROVED'"),
         ),
     )
 
@@ -269,6 +274,19 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND same_day_confirmed_at IS NOT NULL)",
             name="same_day_confirmation_metadata",
         ),
+        # 연장 Slot 하나는 Slot을 점유 중인 예약 하나만 가질 수 있다. 취소·No-show로
+        # 놓아준 예약은 Slot을 막지 않는다.
+        Index(
+            "uq_appointments_occupied_additional_slot",
+            "additional_slot_id",
+            unique=True,
+            postgresql_where=text(
+                "occupies_slot AND additional_slot_id IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "occupies_slot = 1 AND additional_slot_id IS NOT NULL"
+            ),
+        ),
         Index(
             "ix_appointments_service_date_state",
             "service_date",
@@ -314,10 +332,10 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         String(80), nullable=False
     )
     procedure_set: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # 유일성은 Slot을 점유 중인 예약만 대상으로 하는 부분 Index가 담당한다.
     additional_slot_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("schedule_additional_slots.id", ondelete="RESTRICT"),
         nullable=True,
-        unique=True,
         index=True,
     )
     same_day_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

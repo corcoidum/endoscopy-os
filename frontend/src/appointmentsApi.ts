@@ -177,7 +177,8 @@ function availabilityQuery(draft: BookingDraft) {
   }
   const procedureSet = procedureSetFromDraft(draft);
   if (procedureSet) params.set("procedure_set", procedureSet);
-  if (draft.additionalSlotId) params.set("additional_slot_id", draft.additionalSlotId);
+  // 이미 고른 연장 Slot을 query에 넣으면 Backend가 목록을 그 Slot 하나로 좁혀
+  // 승인된 다른 연장 Slot을 고를 수 없게 된다. 목록 조회에는 넣지 않는다.
   return params.toString();
 }
 

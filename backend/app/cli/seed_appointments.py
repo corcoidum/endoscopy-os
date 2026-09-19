@@ -7,8 +7,10 @@ from datetime import UTC, date, datetime, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.exceptions import ApiError
+from app.cli import reject_production_environment
 from app.cli.seed_identity import seed_schedule_resource
+from app.core.config import get_settings
+from app.core.exceptions import ApiError
 from app.db.session import get_session_factory
 from app.models import Appointment, Patient, User
 from app.schemas.appointment import AppointmentProcedureInput
@@ -208,6 +210,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    reject_production_environment(get_settings(), "합성 예약 Seed")
     with get_session_factory()() as db:
         try:
             result = seed_synthetic_appointments(

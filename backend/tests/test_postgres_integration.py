@@ -14,6 +14,8 @@ from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import pytest
+from alembic.autogenerate import compare_metadata
+from alembic.runtime.migration import MigrationContext
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -22,6 +24,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.cli.seed_identity import seed_roles_and_permissions, seed_schedule_resource
 from app.core.config import Settings
 from app.core.security import hash_password
+from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
 from app.models import User, UserRole
@@ -102,7 +105,8 @@ def postgres_app(postgres_session_factory: sessionmaker[Session]) -> FastAPI:
         db.execute(
             text(
                 "TRUNCATE appointment_history_events, appointment_procedures, "
-                "appointments, schedule_date_overrides, patient_history_events, "
+                "appointments, schedule_additional_slots, "
+                "schedule_date_overrides, patient_history_events, "
                 "patients CASCADE"
             )
         )
@@ -170,6 +174,30 @@ def _booking(patient_id: str, start_time: str, procedures: list[dict[str, str]])
         "care_type": "GENERAL",
         "procedures": procedures,
     }
+
+
+def test_migrations_leave_no_drift_from_orm_metadata(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """손으로 쓴 Migration과 ORM metadata가 어긋나면 실패한다.
+
+    SQLite Test는 `Base.metadata`로 Schema를 만들기 때문에 Migration에만 있거나
+    Model에만 있는 제약을 볼 수 없다. 실제 PostgreSQL에 Migration을 적용한 뒤
+    Alembic의 autogenerate 비교로 그 차이를 잡는다.
+    """
+
+    engine = create_engine(str(POSTGRES_URL))
+    try:
+        with engine.connect() as connection:
+            context = MigrationContext.configure(
+                connection,
+                opts={"compare_type": True, "include_schemas": True},
+            )
+            differences = compare_metadata(context, Base.metadata)
+    finally:
+        engine.dispose()
+
+    assert differences == [], differences
 
 
 def test_concurrent_bookings_for_same_slot_allow_only_one(

@@ -5,6 +5,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.cli import reject_production_environment
 from app.core.config import Settings, get_settings
 from app.db.session import get_session_factory
 from app.models import Patient, User
@@ -74,6 +75,7 @@ def seed_synthetic_patients(db: Session, settings: Settings) -> int:
 
 def main() -> int:
     settings = get_settings()
+    reject_production_environment(settings, "합성 환자 Seed")
     with get_session_factory()() as db:
         created = seed_synthetic_patients(db, settings)
         db.commit()

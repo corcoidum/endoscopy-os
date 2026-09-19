@@ -114,11 +114,11 @@ def base_rule_for(service_date: date) -> ScheduleRule:
     return ScheduleRule(9 * 60, 12 * 60, 5, 3)
 
 
-def _time_to_minutes(value: time) -> int:
+def time_to_minutes(value: time) -> int:
     return value.hour * 60 + value.minute
 
 
-def _minutes_to_time(value: int) -> time:
+def minutes_to_time(value: int) -> time:
     return time(hour=value // 60, minute=value % 60)
 
 
@@ -216,8 +216,8 @@ def resolve_day_policy(db: Session, service_date: date) -> ResolvedDayPolicy:
     # 3. 운영시간 변경: 마지막 시작시각은 종료시각−점유시간으로 자동 계산된다(DEC-19).
     hours = by_type.get("OPERATING_HOURS")
     if hours is not None and hours.override_start_time and hours.override_end_time:
-        start_minute = _time_to_minutes(hours.override_start_time)
-        end_minute = _time_to_minutes(hours.override_end_time)
+        start_minute = time_to_minutes(hours.override_start_time)
+        end_minute = time_to_minutes(hours.override_end_time)
 
     # 4. 수용량 변경: 입력한 항목만 요일 기본값을 대체한다.
     capacity = by_type.get("CAPACITY")
@@ -274,18 +274,28 @@ def _load_context(
     )
 
 
+def intervals_overlap(
+    start_minute: int,
+    end_minute: int,
+    other_start_minute: int,
+    other_end_minute: int,
+) -> bool:
+    """[start, end) 두 구간이 겹치는지 분 단위로 판정한다."""
+
+    return start_minute < other_end_minute and other_start_minute < end_minute
+
+
 def _overlaps(
     candidate_start: int,
     candidate_end: int,
     appointment: Appointment,
 ) -> bool:
-    existing_start = _time_to_minutes(
-        to_seoul(appointment.scheduled_start_at).time()
+    return intervals_overlap(
+        candidate_start,
+        candidate_end,
+        time_to_minutes(to_seoul(appointment.scheduled_start_at).time()),
+        time_to_minutes(to_seoul(appointment.scheduled_end_at).time()),
     )
-    existing_end = _time_to_minutes(
-        to_seoul(appointment.scheduled_end_at).time()
-    )
-    return candidate_start < existing_end and existing_start < candidate_end
 
 
 def validate_standard_morning(
@@ -299,7 +309,7 @@ def validate_standard_morning(
 ) -> int:
     rule = rule or base_rule_for(service_date)
     duration = procedure_duration(procedure_codes, procedure_set)
-    start_minute = _time_to_minutes(start_time)
+    start_minute = time_to_minutes(start_time)
     end_minute = start_minute + duration
 
     if start_time.second or start_time.microsecond or start_minute % SLOT_MINUTES:
@@ -456,9 +466,11 @@ def _validate_candidate(
                 code="ADDITIONAL_SLOT_NOT_AVAILABLE",
                 message="승인된 당일 연장 슬롯을 사용할 수 없습니다.",
             )
+        # 취소·No-show로 Slot을 놓아준 예약은 Slot을 계속 붙잡지 않는다.
         already_used = db.scalar(
             select(Appointment.id).where(
                 Appointment.additional_slot_id == additional_slot_id,
+                Appointment.occupies_slot.is_(True),
                 Appointment.id != exclude_appointment_id,
             )
         )
@@ -469,13 +481,13 @@ def _validate_candidate(
                 message="이미 예약에 사용된 당일 연장 슬롯입니다.",
             )
         duration = procedure_duration(procedure_codes, procedure_set)
-        if _time_to_minutes(slot.end_time) - _time_to_minutes(slot.start_time) != duration:
+        if time_to_minutes(slot.end_time) - time_to_minutes(slot.start_time) != duration:
             raise ApiError(
                 status_code=409,
                 code="ADDITIONAL_SLOT_DURATION_INVALID",
                 message="당일 연장 슬롯은 위내시경 30분과 일치해야 합니다.",
             )
-        start_minute = _time_to_minutes(start_time)
+        start_minute = time_to_minutes(start_time)
         if any(
             _overlaps(start_minute, start_minute + duration, appointment)
             for appointment in context.appointments
@@ -547,7 +559,9 @@ def available_slots(
         used_slot_ids = set(
             db.scalars(
                 select(Appointment.additional_slot_id).where(
-                    Appointment.additional_slot_id.is_not(None)
+                    Appointment.additional_slot_id.is_not(None),
+                    Appointment.service_date == service_date,
+                    Appointment.occupies_slot.is_(True),
                 )
             ).all()
         )
@@ -555,7 +569,7 @@ def available_slots(
         for slot in approved_slots:
             if slot.id in used_slot_ids:
                 continue
-            start_minute = _time_to_minutes(slot.start_time)
+            start_minute = time_to_minutes(slot.start_time)
             if (
                 datetime.combine(service_date, slot.start_time, tzinfo=SEOUL) > local_now
                 and not any(
@@ -579,10 +593,10 @@ def available_slots(
             if exc.code == "AFTERNOON_NOT_ALLOWED":
                 raise
             return duration, [], policy.policy_version
-        afternoon_start = _time_to_minutes(AFTERNOON_START)
+        afternoon_start = time_to_minutes(AFTERNOON_START)
         return (
             duration,
-            [(AFTERNOON_START, _minutes_to_time(afternoon_start + duration))],
+            [(AFTERNOON_START, minutes_to_time(afternoon_start + duration))],
             policy.policy_version,
         )
 
@@ -592,7 +606,7 @@ def available_slots(
         policy.morning.end_minute,
         SLOT_MINUTES,
     ):
-        candidate_time = _minutes_to_time(start_minute)
+        candidate_time = minutes_to_time(start_minute)
         if (
             booking_origin == "SAME_DAY"
             and datetime.combine(service_date, candidate_time, tzinfo=SEOUL) <= local_now
@@ -610,7 +624,7 @@ def available_slots(
         except ApiError:
             continue
         slots.append(
-            (candidate_time, _minutes_to_time(start_minute + duration))
+            (candidate_time, minutes_to_time(start_minute + duration))
         )
     return duration, slots, policy.policy_version
 
@@ -920,7 +934,7 @@ def change_appointment(
     )
     new_codes: set[ProcedureCode] = set(new_sedation)  # type: ignore[arg-type]
     if appointment.booking_origin == "SAME_DAY":
-        if new_date != datetime.now(UTC).astimezone(SEOUL).date():
+        if new_date != today_in_seoul(now):
             raise ApiError(
                 status_code=422,
                 code="SAME_DAY_DATE_REQUIRED",
@@ -1229,8 +1243,8 @@ def find_policy_conflicts(db: Session, service_date: date) -> list[PolicyConflic
                 conflicts.append(PolicyConflict(appointment, "AFTERNOON_NOT_ALLOWED"))
             continue
         rule = policy.morning
-        start_minute = _time_to_minutes(to_seoul(appointment.scheduled_start_at).time())
-        end_minute = _time_to_minutes(to_seoul(appointment.scheduled_end_at).time())
+        start_minute = time_to_minutes(to_seoul(appointment.scheduled_start_at).time())
+        end_minute = time_to_minutes(to_seoul(appointment.scheduled_end_at).time())
         if start_minute < rule.start_minute or end_minute > rule.end_minute:
             conflicts.append(PolicyConflict(appointment, "OUTSIDE_OPERATING_HOURS"))
             continue

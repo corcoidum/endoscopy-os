@@ -1,4 +1,8 @@
-// Include adjacent-month cells; split queries to respect the Backend 31-day limit.
+// Backend는 (end_date - start_date)가 이 일수를 넘으면 DATE_RANGE_INVALID를 돌려준다.
+// backend/app/services/appointments.py의 MAX_APPOINTMENT_RANGE_DAYS와 맞춘다.
+export const MAX_QUERY_RANGE_DAYS = 42;
+
+// 앞뒤 달 Cell을 포함하되, 한도를 넘는 기간만 나눠서 조회한다.
 export function calendarQueries(view: string, value: string) {
   const date = new Date(`${value}T12:00:00Z`);
   const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -16,7 +20,9 @@ export function calendarQueries(view: string, value: string) {
   }
   const queries: Array<{ startDate: string; endDate: string }> = [];
   for (let cursor = start; cursor <= end;) {
-    const chunkEnd = new Date(Math.min(add(cursor, 30).getTime(), end.getTime()));
+    const chunkEnd = new Date(
+      Math.min(add(cursor, MAX_QUERY_RANGE_DAYS).getTime(), end.getTime()),
+    );
     queries.push({ startDate: iso(cursor), endDate: iso(chunkEnd) });
     cursor = add(chunkEnd, 1);
   }

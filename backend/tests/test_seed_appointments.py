@@ -4,12 +4,39 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.cli import reject_production_environment
 from app.cli.seed_appointments import (
     build_synthetic_appointment_specs,
     seed_synthetic_appointments,
 )
 from app.cli.seed_patients import seed_synthetic_patients
+from app.core.config import Settings
 from app.models import Appointment, AppointmentHistoryEvent, ScheduleResource
+
+
+PRODUCTION_SETTINGS_ARGUMENTS = {
+    "environment": "production",
+    "database_url": (
+        "postgresql+psycopg://clinic_runtime:SyntheticDbPassword0123456789"
+        "@db.internal:5432/clinic_endoscopy"
+    ),
+    "session_secret": "Synthetic-Production-Session-Secret-0123456789",
+    "field_encryption_key": "Synthetic-Production-Field-Key-0123456789",
+}
+
+
+def test_synthetic_seed_refuses_to_run_against_production() -> None:
+    """운영 설정이 열린 Shell에서 합성 Seed가 실행되면 안 된다."""
+
+    with pytest.raises(SystemExit) as captured:
+        reject_production_environment(
+            Settings(**PRODUCTION_SETTINGS_ARGUMENTS), "합성 예약 Seed"
+        )
+    assert "합성 예약 Seed" in str(captured.value)
+
+
+def test_synthetic_seed_runs_outside_production(test_settings: Settings) -> None:
+    reject_production_environment(test_settings, "합성 예약 Seed")
 
 
 def test_synthetic_appointment_specs_cover_requested_range() -> None:

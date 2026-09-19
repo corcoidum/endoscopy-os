@@ -37,7 +37,7 @@ ADMIN_PASSWORD = "Synthetic-Admin-Password-42!"
 def _next_weekday(target_isoweekday: int) -> date:
     """오늘보다 뒤에 오는 가장 가까운 해당 요일을 돌려준다."""
 
-    from app.services.appointments import today_in_seoul
+    from app.core.clock import today_in_seoul
 
     today = today_in_seoul()
     ahead = (target_isoweekday - today.isoweekday()) % 7

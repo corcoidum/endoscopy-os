@@ -6,11 +6,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.clock import SEOUL, to_seoul
 from app.core.exceptions import ApiError
 from app.models import Appointment, ScheduleAdditionalSlot
 from app.services.appointments import (
     AFTERNOON_START,
-    SEOUL,
     SLOT_MINUTES,
     available_slots,
     get_default_resource,
@@ -18,7 +18,6 @@ from app.services.appointments import (
     lock_schedule_date,
     resolve_day_policy,
     time_to_minutes,
-    to_seoul,
 )
 
 

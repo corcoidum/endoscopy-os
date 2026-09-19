@@ -9,11 +9,11 @@ from uuid import UUID
 from sqlalchemy import ColumnElement, String, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.clock import today_in_seoul
 from app.core.config import Settings
 from app.core.exceptions import ApiError
 from app.models import Patient, PatientHistoryEvent, User
 from app.schemas.patient import AgeMethod, SexCode
-from app.services.appointments import today_in_seoul
 
 PHONE_PATTERN = re.compile(r"^[0-9+() -]+$")
 PATIENT_EDITABLE_FIELDS = {

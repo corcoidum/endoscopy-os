@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.core.clock import to_seoul
 from app.models import Appointment, AppointmentHistoryEvent
 from app.schemas.appointment import (
     AppointmentHistoryEventResponse,
@@ -7,7 +8,7 @@ from app.schemas.appointment import (
     AppointmentResponse,
 )
 from app.schemas.patient import AgeMethod
-from app.services.appointments import exception_status, to_seoul
+from app.services.appointments import exception_status
 from app.services.patients import calculate_age
 
 

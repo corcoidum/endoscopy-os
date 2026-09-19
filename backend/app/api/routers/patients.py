@@ -13,6 +13,7 @@ from app.api.patient_presenters import (
     present_patient_history,
     present_patient_summary,
 )
+from app.core.clock import today_in_seoul
 from app.core.config import Settings, get_settings
 from app.core.exceptions import ApiError
 from app.db.session import get_db
@@ -32,7 +33,6 @@ from app.schemas.patient import (
     SexCode,
 )
 from app.services import patients as patient_service
-from app.services.appointments import today_in_seoul
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 patient_reader = require_permission("patient.read")

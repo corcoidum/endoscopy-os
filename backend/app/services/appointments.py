@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.clock import SEOUL, to_seoul, today_in_seoul
 from app.core.exceptions import ApiError
 from app.models import (
     Appointment,
@@ -27,7 +27,6 @@ from app.schemas.appointment import (
     ProcedureSet,
 )
 
-SEOUL = ZoneInfo("Asia/Seoul")
 DEFAULT_RESOURCE_CODE = "ENDOSCOPY_MAIN"
 BASE_POLICY_VERSION = "BASE-2026-07-30"
 SLOT_MINUTES = 30
@@ -119,24 +118,6 @@ def time_to_minutes(value: time) -> int:
 
 def minutes_to_time(value: int) -> time:
     return time(hour=value // 60, minute=value % 60)
-
-
-def to_seoul(value: datetime) -> datetime:
-    """DB Session Timezone과 무관하게 예약 시각을 서울 기준 벽시계로 맞춘다.
-
-    SQLite는 저장 시 Offset을 버리고 서울 벽시계 값을 그대로 돌려주며,
-    PostgreSQL은 Session Timezone(UTC 등) 기준으로 돌려줄 수 있다.
-    """
-
-    if value.tzinfo is None:
-        return value.replace(tzinfo=SEOUL)
-    return value.astimezone(SEOUL)
-
-
-def today_in_seoul(now: datetime | None = None) -> date:
-    """Server Timezone과 무관하게 서울 기준 오늘 날짜를 돌려준다."""
-
-    return (now or datetime.now(UTC)).astimezone(SEOUL).date()
 
 
 def _reject_past_service_date(

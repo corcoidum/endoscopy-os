@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.core.clock import to_seoul
 from app.models import ScheduleDateOverride
 from app.schemas.schedule import (
     DayPolicyResponse,
@@ -11,7 +12,6 @@ from app.services.appointments import (
     PolicyConflict,
     ResolvedDayPolicy,
     minutes_to_time,
-    to_seoul,
 )
 
 

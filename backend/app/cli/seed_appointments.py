@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.cli import reject_production_environment
 from app.cli.seed_identity import seed_schedule_resource
+from app.core.clock import to_seoul
 from app.core.config import get_settings
 from app.core.exceptions import ApiError
 from app.db.session import get_session_factory
@@ -20,7 +21,7 @@ from app.schemas.appointment import (
     ProcedureSet,
     SedationMode,
 )
-from app.services.appointments import create_appointment, to_seoul
+from app.services.appointments import create_appointment
 
 DEFAULT_START_DATE = date(2026, 9, 1)
 DEFAULT_END_DATE = date(2026, 9, 19)

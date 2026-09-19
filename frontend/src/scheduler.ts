@@ -1,3 +1,4 @@
+import type { DayPolicy } from "./dayPolicies";
 import type {
   Appointment,
   CareCategory,
@@ -79,16 +80,13 @@ export type ScheduleValidation = Omit<ValidationResult, "alternatives">;
 
 export interface DayAvailability {
   date: string;
+  policy: DayPolicy;
   closed: boolean;
-  shortMorning: boolean;
   availableStarts: string[];
   upperCount: number;
   colonCount: number;
   afternoonBooked: boolean;
 }
-
-export const MORNING_UPPER_CAPACITY = 5;
-export const MORNING_COLON_CAPACITY = 3;
 
 export function formatBirthDateInput(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 8);
@@ -110,20 +108,6 @@ export function isValidBirthDate(value: string, referenceDate: string): boolean 
     value >= "1900-01-01" &&
     value <= referenceDate
   );
-}
-
-const DATE_BLOCKS: Record<string, { start: string; end: string; reason: string }[]> = {
-  "2026-07-29": [
-    {
-      start: "10:30",
-      end: "11:00",
-      reason: "장비 점검 승인 차단",
-    },
-  ],
-};
-
-export function getDateBlocks(date: string) {
-  return DATE_BLOCKS[date] ?? [];
 }
 
 export function procedureDuration(
@@ -155,19 +139,41 @@ function intervalOverlaps(
   return firstStart < secondEnd && secondStart < firstEnd;
 }
 
-export function isShortMorning(date: string): boolean {
-  const day = new Date(`${date}T00:00:00`).getDay();
-  return day === 3 || day === 6;
+// 원내 기본 오전 운영시간. 날짜별 규칙이 이보다 짧으면 달력에 표시한다.
+const STANDARD_MORNING_END_MINUTE = 12 * 60;
+
+/** 기본 오전 운영(~12:00)보다 일찍 끝나는 날인지. */
+export function hasShortenedMorning(policy: DayPolicy): boolean {
+  return (
+    !policy.closed &&
+    policy.morningEndMinute !== null &&
+    policy.morningEndMinute < STANDARD_MORNING_END_MINUTE
+  );
 }
 
-export function isClosedDay(date: string): boolean {
-  return new Date(`${date}T00:00:00`).getDay() === 0;
+/** 오전 운영 종료시각. 휴진일에는 없다. */
+export function morningEndLabel(policy: DayPolicy): string | null {
+  return policy.morningEndMinute === null ? null : fromMinutes(policy.morningEndMinute);
 }
 
-export function standardStartsFor(date: string): string[] {
-  const end = isShortMorning(date) ? 11 * 60 : 12 * 60;
+/** "09:00~12:00" 같은 오전 운영시간 표기. 휴진일에는 없다. */
+export function morningHoursLabel(policy: DayPolicy): string | null {
+  if (policy.morningStartMinute === null || policy.morningEndMinute === null) {
+    return null;
+  }
+  return `${fromMinutes(policy.morningStartMinute)}~${fromMinutes(policy.morningEndMinute)}`;
+}
+
+export function standardStartsFor(policy: DayPolicy): string[] {
+  if (policy.morningStartMinute === null || policy.morningEndMinute === null) {
+    return [];
+  }
   const starts: string[] = [];
-  for (let current = 9 * 60; current < end; current += 30) {
+  for (
+    let current = policy.morningStartMinute;
+    current < policy.morningEndMinute;
+    current += 30
+  ) {
     starts.push(fromMinutes(current));
   }
   return starts;
@@ -196,6 +202,7 @@ function sameDayAppointments(
 export function validateSchedule(
   draft: BookingDraft,
   appointments: Appointment[],
+  policy: DayPolicy,
   excludeAppointmentId?: string,
 ): ScheduleValidation {
   const duration = procedureDuration(draft.procedure, draft.procedureSet);
@@ -204,8 +211,12 @@ export function validateSchedule(
   const errors: string[] = [];
   const sameDay = sameDayAppointments(appointments, draft.date, excludeAppointmentId);
 
-  if (isClosedDay(draft.date)) {
-    errors.push("일요일은 휴진일이라 예약할 수 없습니다.");
+  if (policy.closed) {
+    errors.push(
+      new Date(`${draft.date}T00:00:00`).getDay() === 0
+        ? "일요일은 휴진일이라 예약할 수 없습니다."
+        : "선택한 날짜는 휴진일로 지정되어 예약할 수 없습니다.",
+    );
   }
 
   if (start % 30 !== 0) {
@@ -221,6 +232,10 @@ export function validateSchedule(
       errors.push("오후 예외 예약은 14:00만 선택할 수 있습니다.");
     }
 
+    if (!policy.afternoonAllowed) {
+      errors.push("선택한 날짜는 14:00 오후 예외가 허용되지 않았습니다.");
+    }
+
     const afternoonAlreadyBooked = sameDay.some(
       (appointment) => appointment.afternoonException,
     );
@@ -228,40 +243,37 @@ export function validateSchedule(
       errors.push("이 날짜의 14:00 오후 예외 예약은 이미 1명이 등록되어 있습니다.");
     }
   } else {
-    const operatingEnd = isShortMorning(draft.date) ? 11 * 60 : 12 * 60;
-    if (start < 9 * 60 || end > operatingEnd) {
-      const endingLabel = isShortMorning(draft.date) ? "11:00" : "12:00";
+    const operatingStart = policy.morningStartMinute;
+    const operatingEnd = policy.morningEndMinute;
+    if (
+      operatingStart === null ||
+      operatingEnd === null ||
+      start < operatingStart ||
+      end > operatingEnd
+    ) {
+      const endingLabel = morningEndLabel(policy);
       errors.push(
-        `${draft.start} 시작 시 ${fromMinutes(end)}에 종료되어 오전 운영 종료 ${endingLabel}을 초과합니다.`,
+        endingLabel === null
+          ? `${draft.start}은 오전 운영시간이 없는 날짜입니다.`
+          : `${draft.start} 시작 시 ${fromMinutes(end)}에 종료되어 오전 운영 종료 ${endingLabel}을 초과합니다.`,
       );
     }
 
-    const block = getDateBlocks(draft.date).find((item) =>
-      intervalOverlaps(start, end, toMinutes(item.start), toMinutes(item.end)),
+    const standardAppointments = sameDay.filter(
+      (appointment) => !appointment.afternoonException,
     );
-    if (block) {
-      errors.push(
-        `${block.start}~${block.end}은 '${block.reason}'으로 차단된 시간입니다.`,
-      );
+    const upperCount =
+      standardAppointments.filter((appointment) => includesUpper(appointment.procedure))
+        .length + (includesUpper(draft.procedure) ? 1 : 0);
+    const colonCount =
+      standardAppointments.filter((appointment) => includesColon(appointment.procedure))
+        .length + (includesColon(draft.procedure) ? 1 : 0);
+
+    if (policy.upperCapacity !== null && upperCount > policy.upperCapacity) {
+      errors.push(`오전 위내시경 일반 수용량 ${policy.upperCapacity}건을 초과합니다.`);
     }
-
-    if (!isShortMorning(draft.date)) {
-      const standardAppointments = sameDay.filter(
-        (appointment) => !appointment.afternoonException,
-      );
-      const upperCount =
-        standardAppointments.filter((appointment) => includesUpper(appointment.procedure))
-          .length + (includesUpper(draft.procedure) ? 1 : 0);
-      const colonCount =
-        standardAppointments.filter((appointment) => includesColon(appointment.procedure))
-          .length + (includesColon(draft.procedure) ? 1 : 0);
-
-      if (upperCount > MORNING_UPPER_CAPACITY) {
-        errors.push(`오전 위내시경 일반 수용량 ${MORNING_UPPER_CAPACITY}건을 초과합니다.`);
-      }
-      if (colonCount > MORNING_COLON_CAPACITY) {
-        errors.push(`오전 대장내시경 일반 수용량 ${MORNING_COLON_CAPACITY}건을 초과합니다.`);
-      }
+    if (policy.colonCapacity !== null && colonCount > policy.colonCapacity) {
+      errors.push(`오전 대장내시경 일반 수용량 ${policy.colonCapacity}건을 초과합니다.`);
     }
   }
 
@@ -292,17 +304,22 @@ export function dayAvailability(
   draft: BookingDraft,
   appointments: Appointment[],
   date: string,
+  policy: DayPolicy,
   excludeAppointmentId?: string,
 ): DayAvailability {
-  const closed = isClosedDay(date);
+  const closed = policy.closed;
   const candidateStarts =
-    draft.bucket === "AFTERNOON_EXCEPTION" ? ["14:00"] : standardStartsFor(date);
+    draft.bucket === "AFTERNOON_EXCEPTION" ? ["14:00"] : standardStartsFor(policy);
   const availableStarts = closed
     ? []
     : candidateStarts.filter(
         (start) =>
-          validateSchedule({ ...draft, date, start }, appointments, excludeAppointmentId)
-            .valid,
+          validateSchedule(
+            { ...draft, date, start },
+            appointments,
+            policy,
+            excludeAppointmentId,
+          ).valid,
       );
   const sameDay = sameDayAppointments(appointments, date, excludeAppointmentId);
   const standardAppointments = sameDay.filter(
@@ -311,8 +328,8 @@ export function dayAvailability(
 
   return {
     date,
+    policy,
     closed,
-    shortMorning: isShortMorning(date),
     availableStarts,
     upperCount: standardAppointments.filter((appointment) =>
       includesUpper(appointment.procedure),
@@ -327,10 +344,11 @@ export function dayAvailability(
 export function validateBooking(
   draft: BookingDraft,
   appointments: Appointment[],
+  policy: DayPolicy,
   excludeAppointmentId?: string,
   calculateAlternatives = true,
 ): ValidationResult {
-  const schedule = validateSchedule(draft, appointments, excludeAppointmentId);
+  const schedule = validateSchedule(draft, appointments, policy, excludeAppointmentId);
   const errors: string[] = [];
 
   if (!draft.name.trim() || !draft.chartNumber.trim() || !draft.dateOfBirth || !draft.sex) {
@@ -374,6 +392,7 @@ export function validateBooking(
       draft,
       appointments,
       draft.date,
+      policy,
       excludeAppointmentId,
     ).availableStarts.slice(0, 3);
   }

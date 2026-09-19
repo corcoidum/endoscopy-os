@@ -7,7 +7,8 @@ import {
 } from "./data";
 import {
   fromMinutes,
-  isShortMorning,
+  hasShortenedMorning,
+  morningEndLabel,
   toMinutes,
 } from "./scheduler";
 import {
@@ -24,6 +25,7 @@ import {
   weekDaysFor,
 } from "./calendarDates";
 import { Icon } from "./icons";
+import type { DayPolicyLookup } from "./dayPolicies";
 
 export function PriorityQueue({
   appointments,
@@ -241,6 +243,7 @@ export function WeekSchedule({
   onSelect,
   calendarDate,
   onSelectDate,
+  dayPolicy,
   loading,
   loadError,
   onRetry,
@@ -250,6 +253,7 @@ export function WeekSchedule({
   onSelect: (id: string) => void;
   calendarDate: string;
   onSelectDate: (date: string) => void;
+  dayPolicy: DayPolicyLookup;
   loading: boolean;
   loadError: string;
   onRetry: () => void;
@@ -329,10 +333,10 @@ export function WeekSchedule({
                   />
                 ))}
               </div>
-              {isShortMorning(day.date) && (
+              {hasShortenedMorning(dayPolicy(day.date)) && (
                 <div className="closed-morning">
                   <Icon name="lock" />
-                  <span>11:00 오전 운영 종료</span>
+                  <span>{morningEndLabel(dayPolicy(day.date))} 오전 운영 종료</span>
                 </div>
               )}
               {dayAppointments.map((appointment) => (

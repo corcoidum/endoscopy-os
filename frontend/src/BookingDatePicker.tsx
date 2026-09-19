@@ -10,10 +10,11 @@ import {
 } from "./calendarDates";
 import {
   dayAvailability,
-  MORNING_COLON_CAPACITY,
-  MORNING_UPPER_CAPACITY,
+  hasShortenedMorning,
+  morningHoursLabel,
   type BookingDraft,
 } from "./scheduler";
+import type { DayPolicyLookup } from "./dayPolicies";
 import type { Appointment } from "./data";
 
 export const BOOKING_CALENDAR_WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"] as const;
@@ -30,12 +31,13 @@ export function bookingDayTitle(
 ): string {
   const label = koreanDateLabel(availability.date);
   if (availability.closed) return `${label} · 휴진`;
+  const { policy } = availability;
   const usage =
     bucket === "AFTERNOON_EXCEPTION"
       ? `14시 예외 ${availability.afternoonBooked ? 1 : 0}/1`
-      : availability.shortMorning
-        ? "단축 운영 09:00~11:00"
-        : `위 ${availability.upperCount}/${MORNING_UPPER_CAPACITY} · 대장 ${availability.colonCount}/${MORNING_COLON_CAPACITY}`;
+      : policy.upperCapacity === null || policy.colonCapacity === null
+        ? `운영 ${morningHoursLabel(policy) ?? "미정"}`
+        : `위 ${availability.upperCount}/${policy.upperCapacity} · 대장 ${availability.colonCount}/${policy.colonCapacity}`;
   const starts = availability.availableStarts.length
     ? `가능 ${availability.availableStarts.join(", ")}`
     : "가능 시간 없음";
@@ -45,11 +47,13 @@ export function bookingDayTitle(
 export function BookingDatePicker({
   draft,
   appointments,
+  dayPolicy,
   excludeAppointmentId,
   onSelectDate,
 }: {
   draft: BookingDraft;
   appointments: Appointment[];
+  dayPolicy: DayPolicyLookup;
   excludeAppointmentId?: string;
   onSelectDate: (date: string) => void;
 }) {
@@ -58,7 +62,7 @@ export function BookingDatePicker({
   );
   const { year, month, days } = monthGridDays(visibleMonth);
   const availabilityFor = (date: string) =>
-    dayAvailability(draft, appointments, date, excludeAppointmentId);
+    dayAvailability(draft, appointments, date, dayPolicy(date), excludeAppointmentId);
   const selected = availabilityFor(draft.date);
 
   const nextAvailable: ReturnType<typeof dayAvailability>[] = [];
@@ -150,7 +154,7 @@ export function BookingDatePicker({
             >
               <span>{day.day}</span>
               {label && <small>{label}</small>}
-              {availability.shortMorning &&
+              {hasShortenedMorning(availability.policy) &&
                 !outOfWindow &&
                 draft.bucket === "STANDARD_MORNING" && <em>단축</em>}
             </button>

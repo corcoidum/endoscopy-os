@@ -6,9 +6,10 @@ import {
 import {
   dayAvailability,
   formatBirthDateInput,
-  isShortMorning,
+  morningHoursLabel,
   isValidBirthDate,
   procedureDuration,
+  fromMinutes,
   standardStartsFor,
   validateBooking,
   validateSchedule,
@@ -17,6 +18,7 @@ import {
 } from "./scheduler";
 import { CheckCard, EmptyState } from "./uiPrimitives";
 import { Icon } from "./icons";
+import type { DayPolicyLookup } from "./dayPolicies";
 import { BookingDatePicker } from "./BookingDatePicker";
 import {
   draftFromAppointment,
@@ -34,6 +36,7 @@ import {
 export function BookingWizard({
   appointment,
   appointments,
+  dayPolicy,
   sameDay = false,
   canApproveExtension,
   onCreateAdditionalSlot,
@@ -42,6 +45,7 @@ export function BookingWizard({
 }: {
   appointment?: Appointment;
   appointments: Appointment[];
+  dayPolicy: DayPolicyLookup;
   sameDay?: boolean;
   canApproveExtension: boolean;
   onCreateAdditionalSlot: (
@@ -64,12 +68,31 @@ export function BookingWizard({
   const [availabilityError, setAvailabilityError] = useState("");
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityRevision, setAvailabilityRevision] = useState(0);
-  const [extensionStart, setExtensionStart] = useState(
-    isShortMorning(draft.date) ? "11:00" : "12:00",
+  const [extensionStart, setExtensionStart] = useState(() =>
+    fromMinutes(dayPolicy(draft.date).morningEndMinute ?? 12 * 60),
   );
   const [extensionReason, setExtensionReason] = useState("");
   const [extensionPending, setExtensionPending] = useState(false);
   const [extensionError, setExtensionError] = useState("");
+  const selectedPolicy = dayPolicy(draft.date);
+  // 연장 슬롯은 오전 운영 종료 후부터 14:00 전까지 30분 단위로만 열 수 있다.
+  const extensionStartOptions: string[] = [];
+  if (selectedPolicy.morningEndMinute !== null) {
+    for (
+      let minute = selectedPolicy.morningEndMinute;
+      minute + 30 <= 14 * 60;
+      minute += 30
+    ) {
+      extensionStartOptions.push(fromMinutes(minute));
+    }
+  }
+  const effectiveExtensionStart = extensionStartOptions.includes(extensionStart)
+    ? extensionStart
+    : (extensionStartOptions[0] ?? extensionStart);
+  const capacityLabel =
+    selectedPolicy.upperCapacity === null || selectedPolicy.colonCapacity === null
+      ? `${standardStartsFor(selectedPolicy).length} Slot 기반`
+      : `위 ${selectedPolicy.upperCapacity} · 대장 ${selectedPolicy.colonCapacity}`;
   const dialogRef = useRef<HTMLDivElement>(null);
   const birthDatePickerRef = useRef<HTMLInputElement>(null);
 
@@ -78,9 +101,9 @@ export function BookingWizard({
   const validation = useMemo(
     () =>
       appointment
-        ? validateBooking(draft, appointments, appointment.id)
+        ? validateBooking(draft, appointments, dayPolicy(draft.date), appointment.id)
         : validateBackendBookingDraft(draft),
-    [draft, appointments, appointment?.id],
+    [draft, appointments, dayPolicy, appointment?.id],
   );
   const birthDateValid = isValidBirthDate(draft.dateOfBirth, draft.date);
   const identityComplete = Boolean(
@@ -218,7 +241,7 @@ export function BookingWizard({
     appointment
       ? draft.bucket === "AFTERNOON_EXCEPTION"
         ? ["14:00"]
-        : standardStartsFor(draft.date)
+        : standardStartsFor(dayPolicy(draft.date))
       : availability?.slots.map((slot) => slot.start_time.slice(0, 5)) ?? [];
   const selectedStartAvailable = Boolean(
     appointment || slotStarts.includes(draft.start),
@@ -251,7 +274,7 @@ export function BookingWizard({
     try {
       const slot = await onCreateAdditionalSlot(
         draft.date,
-        extensionStart,
+        effectiveExtensionStart,
         extensionReason,
       );
       setDraft((current) => ({
@@ -529,6 +552,7 @@ export function BookingWizard({
             <BookingDatePicker
               draft={draft}
               appointments={appointments}
+              dayPolicy={dayPolicy}
               excludeAppointmentId={appointment?.id}
               onSelectDate={(date) =>
                 setDraft((current) => {
@@ -536,6 +560,7 @@ export function BookingWizard({
                     current,
                     appointments,
                     date,
+                    dayPolicy(date),
                     appointment?.id,
                   );
                   const start =
@@ -570,6 +595,7 @@ export function BookingWizard({
                 const slotValidation = validateSchedule(
                   { ...draft, start },
                   appointments,
+                  dayPolicy(draft.date),
                   appointment?.id,
                 );
                 return (
@@ -634,13 +660,12 @@ export function BookingWizard({
                   <label className="field">
                     <span>연장 시작시각</span>
                     <select
-                      value={extensionStart}
+                      value={effectiveExtensionStart}
                       onChange={(event) => setExtensionStart(event.target.value)}
                     >
-                      {(isShortMorning(draft.date)
-                        ? ["11:00", "11:30", "12:00", "12:30", "13:00", "13:30"]
-                        : ["12:00", "12:30", "13:00", "13:30"]
-                      ).map((value) => <option key={value}>{value}</option>)}
+                      {extensionStartOptions.map((value) => (
+                        <option key={value}>{value}</option>
+                      ))}
                     </select>
                   </label>
                   <label className="field">
@@ -1399,7 +1424,7 @@ export function BookingWizard({
               <div>
                 <dt>운영시간</dt>
                 <dd>
-                  {isShortMorning(draft.date) ? "09:00~11:00" : "09:00~12:00"}
+                  {morningHoursLabel(dayPolicy(draft.date)) ?? "휴진"}
                 </dd>
               </div>
               <div>
@@ -1413,9 +1438,7 @@ export function BookingWizard({
                     ? "오후 별도 1명"
                     : draft.bucket === "SAME_DAY_EXTENSION"
                       ? "승인 슬롯 1건"
-                    : isShortMorning(draft.date)
-                      ? "4 Slot 기반"
-                      : "위 5 · 대장 3"}
+                    : capacityLabel}
                 </dd>
               </div>
             </dl>

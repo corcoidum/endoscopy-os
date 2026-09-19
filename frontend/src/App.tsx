@@ -5,6 +5,8 @@ import {
   useState,
 } from "react";
 import { calendarQueries } from "./calendarQueries";
+import { useDayPolicies } from "./dayPolicies";
+import { BOOKING_WINDOW_END } from "./BookingDatePicker";
 import {
   initialAppointments,
   initialPathologyCases,
@@ -122,6 +124,16 @@ function Workbench({
           (appointment) => appointment.id === bookingModal.appointmentId,
         )
       : undefined;
+
+  // 달력이 보여 주는 기간과 예약 Wizard가 훑는 예약 창을 모두 덮도록 규칙을 받는다.
+  const calendarRange = calendarQueries(activeView, calendarDate);
+  const calendarRangeStart = calendarRange[0].startDate;
+  const calendarRangeEnd = calendarRange[calendarRange.length - 1].endDate;
+  const { dayPolicy, error: dayPolicyError } = useDayPolicies(
+    calendarRangeStart < REFERENCE_TODAY ? calendarRangeStart : REFERENCE_TODAY,
+    calendarRangeEnd > BOOKING_WINDOW_END ? calendarRangeEnd : BOOKING_WINDOW_END,
+    scheduleRevision,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -423,6 +435,14 @@ function Workbench({
     return () => window.clearTimeout(timer);
   }, [logoutError]);
 
+  // 날짜별 규칙을 못 받으면 요일 기본값으로 그리므로, 그 사실을 직원에게 알린다.
+  useEffect(() => {
+    if (!dayPolicyError) return;
+    setToast(dayPolicyError);
+    const timer = window.setTimeout(() => setToast(""), 5200);
+    return () => window.clearTimeout(timer);
+  }, [dayPolicyError]);
+
   useEffect(() => {
     const activeDefinition = NAVIGATION.find(
       (item) => item.id === activeView,
@@ -590,6 +610,7 @@ function Workbench({
         onSelect={openAppointmentDetail}
         calendarDate={calendarDate}
         onSelectDate={openDay}
+        dayPolicy={dayPolicy}
         loading={scheduleLoading}
         loadError={scheduleError}
         onRetry={() => setScheduleRevision((current) => current + 1)}
@@ -781,6 +802,7 @@ function Workbench({
         <BookingWizard
           appointment={editingAppointment}
           appointments={bookingModal.mode === "edit" ? appointments : backendAppointments}
+          dayPolicy={dayPolicy}
           sameDay={bookingModal.mode === "same-day"}
           canApproveExtension={canApproveExtension}
           onCreateAdditionalSlot={createSameDayExtension}

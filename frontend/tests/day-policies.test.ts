@@ -8,6 +8,7 @@ import {
   MAX_DAY_POLICY_RANGE_DAYS,
   type DayPolicy,
 } from "../src/dayPolicies.ts";
+import type { BookingDraft } from "../src/scheduler.ts";
 import {
   hasShortenedMorning,
   morningHoursLabel,
@@ -18,7 +19,7 @@ import {
 // 2026-09-18은 금요일이라 요일 기본 규칙으로는 09:00~12:00 진료일이다.
 const WEEKDAY = "2026-09-18";
 
-const draft = {
+const draft: BookingDraft = {
   name: "합성가람",
   chartNumber: "SYN-PT-0001",
   dateOfBirth: "1978-04-12",
@@ -48,7 +49,7 @@ const draft = {
   exceptionReason: "",
   exceptionConfirmedBy: "",
   exceptionMemo: "",
-} as const;
+};
 
 function policy(overrides: Partial<DayPolicy>): DayPolicy {
   return { ...fallbackDayPolicy(WEEKDAY), ...overrides };
@@ -111,11 +112,11 @@ test("수용량 변경이 초과 판정 기준이 된다", () => {
 });
 
 test("오후 예외는 허용된 날짜에서만 통과한다", () => {
-  const afternoonDraft = {
+  const afternoonDraft: BookingDraft = {
     ...draft,
     bucket: "AFTERNOON_EXCEPTION",
     start: "14:00",
-  } as const;
+  };
 
   const notAllowed = validateSchedule(afternoonDraft, [], fallbackDayPolicy(WEEKDAY));
   assert.equal(notAllowed.valid, false);

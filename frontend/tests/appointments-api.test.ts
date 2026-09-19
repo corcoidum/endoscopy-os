@@ -8,8 +8,9 @@ import {
   mapAppointmentResponse,
   proceduresFromDraft,
 } from "../src/appointmentsApi.ts";
+import type { BookingDraft } from "../src/scheduler.ts";
 
-const draft = {
+const draft: BookingDraft = {
   name: "합성가람",
   chartNumber: "SYN-PT-0001",
   dateOfBirth: "1978-04-12",
@@ -39,7 +40,7 @@ const draft = {
   exceptionReason: "",
   exceptionConfirmedBy: "",
   exceptionMemo: "",
-} as const;
+};
 
 test("예약 Draft를 Backend 검사 코드와 수면 구분으로 변환한다", () => {
   assert.deepEqual(proceduresFromDraft(draft), [
@@ -87,18 +88,26 @@ test("Backend 예약은 주간 화면 모델로 변환하되 정적 상세 경�
 
 test("예약 생성은 CSRF와 Sprint 3A payload를 전송한다", async (t) => {
   let captured: { input: string; init?: RequestInit } | null = null;
-  t.mock.method(globalThis, "fetch", async (input, init) => {
-    captured = { input: String(input), init };
-    return new Response(JSON.stringify({ id: "created" }), {
-      status: 201,
-      headers: { "Content-Type": "application/json" },
-    });
-  });
+  // Callback 안의 대입은 Type 좁히기가 따라오지 못하므로 함수로 읽는다.
+  const capturedCall = () => captured;
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured = { input: String(input), init };
+      return new Response(JSON.stringify({ id: "created" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  );
 
   await appointmentsApi.create(draft, "patient-id", "csrf-token");
-  assert.equal(captured?.input, "/api/appointments");
-  assert.equal(new Headers(captured?.init?.headers).get("X-CSRF-Token"), "csrf-token");
-  const body = JSON.parse(String(captured?.init?.body));
+  const call = capturedCall();
+  assert.ok(call, "fetch가 호출되지 않았습니다");
+  assert.equal(call.input, "/api/appointments");
+  assert.equal(new Headers(call.init?.headers).get("X-CSRF-Token"), "csrf-token");
+  const body = JSON.parse(String(call.init?.body));
   assert.equal(body.patient_id, "patient-id");
   assert.equal(body.procedure_set, "SET_90");
   assert.equal(body.procedures.length, 2);
@@ -106,7 +115,7 @@ test("예약 생성은 CSRF와 Sprint 3A payload를 전송한다", async (t) => 
 
 test("가능 슬롯 조회는 날짜·검사·세트·예약 구분을 query로 전송한다", async (t) => {
   let requestedUrl = "";
-  t.mock.method(globalThis, "fetch", async (input) => {
+  t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
     requestedUrl = String(input);
     return new Response(
       JSON.stringify({
@@ -134,7 +143,7 @@ test("가능 슬롯 조회는 날짜·검사·세트·예약 구분을 query로 
 
 test("가능 슬롯 조회는 이미 고른 연장 슬롯으로 목록을 좁히지 않는다", async (t) => {
   let requestedUrl = "";
-  t.mock.method(globalThis, "fetch", async (input) => {
+  t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
     requestedUrl = String(input);
     return new Response(
       JSON.stringify({
@@ -163,7 +172,7 @@ test("가능 슬롯 조회는 이미 고른 연장 슬롯으로 목록을 좁히
 
 test("당일 위내시경은 안전 확인과 당일 출처를 생성 payload에 포함한다", async (t) => {
   let body: Record<string, unknown> = {};
-  t.mock.method(globalThis, "fetch", async (_input, init) => {
+  t.mock.method(globalThis, "fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
     body = JSON.parse(String(init?.body));
     return new Response(JSON.stringify({ id: "same-day" }), {
       status: 201,

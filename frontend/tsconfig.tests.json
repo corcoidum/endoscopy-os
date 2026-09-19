@@ -1,0 +1,8 @@
+{
+  // Test만 Node 전역을 쓴다. src에는 Node 전역이 새지 않도록 설정을 나눈다.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["tests"]
+}

@@ -8,6 +8,18 @@ import { StateLabel } from "./uiPrimitives";
 import { formatDateKorean } from "./calendarDates";
 import { Icon } from "./icons";
 import { AppointmentOperationsEditor } from "./AppointmentOperationsEditor";
+import { AppointmentHistoryPanel } from "./AppointmentHistoryPanel";
+import { appointmentHasStarted } from "./appointmentPresentation";
+import type { AppointmentReasonAction } from "./AppointmentReasonDialog";
+
+/** Backend에 저장된 예약에서만 쓰는 상태 변경 권한과 동작. */
+export type BackendAppointmentActions = {
+  canChange: boolean;
+  canCancel: boolean;
+  canRecordNoShow: boolean;
+  canConfirmException: boolean;
+  onAction: (action: AppointmentReasonAction) => void;
+};
 
 export function AppointmentDetailDialog({
   appointment,
@@ -18,6 +30,7 @@ export function AppointmentDetailDialog({
   onUpdate,
   canEdit,
   canVerify,
+  backendActions,
 }: {
   appointment: Appointment;
   onClose: () => void;
@@ -27,6 +40,7 @@ export function AppointmentDetailDialog({
   onUpdate: (patch: Partial<Appointment>) => void;
   canEdit: boolean;
   canVerify: boolean;
+  backendActions?: BackendAppointmentActions;
 }) {
   const [tab, setTab] = useState("업무 요약");
   const [correctingVerification, setCorrectingVerification] = useState(false);
@@ -237,7 +251,16 @@ export function AppointmentDetailDialog({
             </section>
           )}
 
-          {tab === "이력·결과" && (
+          {tab === "이력·결과" && appointment.backendManaged && (
+            <section className="appointment-detail-section">
+              <AppointmentHistoryPanel
+                appointmentId={appointment.id}
+                revision={appointment.rowVersion}
+              />
+            </section>
+          )}
+
+          {tab === "이력·결과" && !appointment.backendManaged && (
             <section className="appointment-detail-section appointment-detail-section--empty">
               <Icon name="history" />
               <h3>이력과 결과는 예약과 분리해 누적합니다.</h3>
@@ -288,10 +311,41 @@ export function AppointmentDetailDialog({
           <button className="secondary-button" onClick={onClose}>
             닫기
           </button>
-          {canEdit ? (
+          {canEdit || backendActions?.canChange ? (
             <button className="secondary-button" onClick={onEdit}>
               <Icon name="edit" />
               예약 변경
+            </button>
+          ) : null}
+          {backendActions?.canConfirmException && appointment.exceptionPending ? (
+            <button
+              className="primary-button"
+              onClick={() => backendActions.onAction("confirm-exception")}
+            >
+              <Icon name="check" />
+              오후 예외 확인
+            </button>
+          ) : null}
+          {backendActions?.canRecordNoShow ? (
+            <button
+              className="secondary-button"
+              disabled={!appointmentHasStarted(appointment)}
+              title={
+                appointmentHasStarted(appointment)
+                  ? undefined
+                  : "예약 시작시각이 지난 뒤에 기록할 수 있습니다."
+              }
+              onClick={() => backendActions.onAction("no-show")}
+            >
+              No-show
+            </button>
+          ) : null}
+          {backendActions?.canCancel ? (
+            <button
+              className="danger-button"
+              onClick={() => backendActions.onAction("cancel")}
+            >
+              예약 취소
             </button>
           ) : null}
           {canVerify && appointment.verification !== "완료" ? (

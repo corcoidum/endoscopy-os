@@ -39,6 +39,11 @@ import {
 import { hasAnyPermission, NAVIGATION, roleLabel } from "./navigation";
 import { Icon } from "./icons";
 import { AppointmentDetailDialog } from "./AppointmentDetailDialog";
+import { AppointmentChangeDialog } from "./AppointmentChangeDialog";
+import {
+  AppointmentReasonDialog,
+  type AppointmentReasonAction,
+} from "./AppointmentReasonDialog";
 import {
   BookingWizard,
 } from "./BookingWizard";
@@ -92,6 +97,11 @@ function Workbench({
     appointmentId?: string;
   } | null>(null);
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  // Backend 예약의 변경·취소·No-show·오후 예외 확인 Dialog.
+  const [scheduleAction, setScheduleAction] = useState<{
+    kind: "change" | AppointmentReasonAction;
+    appointmentId: string;
+  } | null>(null);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
@@ -100,6 +110,8 @@ function Workbench({
     hasAnyPermission(user, ["appointment.create"]) &&
     hasAnyPermission(user, ["patient.read"]);
   const canUpdateAppointment = hasAnyPermission(user, ["appointment.update"]);
+  const canCancelAppointment = hasAnyPermission(user, ["appointment.cancel"]);
+  const canRecordNoShow = hasAnyPermission(user, ["appointment.no_show"]);
   const canApproveExtension = hasAnyPermission(user, ["schedule_override.approve"]);
   const canVerifyIdentity = hasAnyPermission(user, [
     "verification.secondary",
@@ -236,7 +248,9 @@ function Workbench({
     if (!canUpdateAppointment || !appointmentId) return;
     const target = backendAppointments.find((item) => item.id === appointmentId);
     if (target) {
-      notify("Backend 예약 변경은 다음 연결 단계에서 제공합니다.");
+      // 실제 예약은 Backend가 바꿀 수 있는 항목만 다루는 전용 Dialog로 변경한다.
+      setDrawer(null);
+      setScheduleAction({ kind: "change", appointmentId });
       return;
     }
     setDrawer(null);
@@ -475,12 +489,12 @@ function Workbench({
         searchRef.current?.focus();
         return;
       }
-      if (event.key === "Escape" && drawer) {
+      if (event.key === "Escape" && drawer && !scheduleAction) {
         event.preventDefault();
         setDrawer(null);
         return;
       }
-      if (bookingModal || drawer || isTyping) return;
+      if (bookingModal || drawer || scheduleAction || isTyping) return;
       if (
         canCreateAppointment &&
         (event.key === "F2" || event.key.toLowerCase() === "n")
@@ -619,6 +633,22 @@ function Workbench({
       />
     );
   };
+
+  // 변경·취소 뒤에는 목록과 날짜별 규칙을 다시 받아 최신 row_version을 쓴다.
+  const finishScheduleAction = (message: string) => {
+    setScheduleAction(null);
+    setDrawer(null);
+    setScheduleRevision((current) => current + 1);
+    notify(message);
+  };
+  const staleScheduleAction = (message: string) => {
+    setScheduleAction(null);
+    setScheduleRevision((current) => current + 1);
+    notify(`${message} 최신 내용을 다시 불러왔습니다.`);
+  };
+  const scheduleActionAppointment = scheduleAction
+    ? backendAppointments.find((item) => item.id === scheduleAction.appointmentId)
+    : undefined;
 
   const drawerAppointment =
     drawer?.kind === "appointment"
@@ -826,6 +856,39 @@ function Workbench({
           }}
           canEdit={canUpdateAppointment && !drawerAppointment.backendManaged}
           canVerify={canVerifyIdentity && !drawerAppointment.backendManaged}
+          backendActions={
+            drawerAppointment.backendManaged
+              ? {
+                  canChange: canUpdateAppointment,
+                  canCancel: canCancelAppointment,
+                  canRecordNoShow: canRecordNoShow,
+                  canConfirmException: canApproveExtension,
+                  onAction: (action) =>
+                    setScheduleAction({ kind: action, appointmentId: drawerAppointment.id }),
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {scheduleAction && scheduleActionAppointment && scheduleAction.kind === "change" && (
+        <AppointmentChangeDialog
+          appointment={scheduleActionAppointment}
+          csrfToken={csrfToken}
+          onClose={() => setScheduleAction(null)}
+          onDone={finishScheduleAction}
+          onStale={staleScheduleAction}
+        />
+      )}
+
+      {scheduleAction && scheduleActionAppointment && scheduleAction.kind !== "change" && (
+        <AppointmentReasonDialog
+          appointment={scheduleActionAppointment}
+          action={scheduleAction.kind}
+          csrfToken={csrfToken}
+          onClose={() => setScheduleAction(null)}
+          onDone={finishScheduleAction}
+          onStale={staleScheduleAction}
         />
       )}
 

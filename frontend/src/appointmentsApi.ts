@@ -1,5 +1,5 @@
 import { ApiError, apiRequest } from "./api.ts";
-import type { Appointment, ProcedureKind } from "./data";
+import type { Appointment, CareCategory, ProcedureKind, ProcedureSet } from "./data";
 import type { BookingDraft } from "./scheduler";
 
 export type ProcedureCode = "UPPER" | "COLON";
@@ -35,9 +35,40 @@ export type AppointmentResponse = {
   same_day_escort_confirmed: boolean;
   same_day_confirmed_at: string | null;
   workflow_state: "BOOKED" | "CANCELLED" | "NO_SHOW";
+  exception_status: "NOT_APPLICABLE" | "PENDING" | "CONFIRMED";
   exception_reason: string | null;
   exception_memo: string | null;
   procedures: AppointmentProcedureResponse[];
+  row_version: number;
+};
+
+export type AppointmentEventType =
+  | "CREATED"
+  | "UPDATED"
+  | "CANCELLED"
+  | "NO_SHOW"
+  | "EXCEPTION_CONFIRMED";
+
+export type AppointmentHistoryEvent = {
+  id: string;
+  event_type: AppointmentEventType;
+  changed_fields: string[];
+  before_values: Record<string, unknown> | null;
+  after_values: Record<string, unknown>;
+  reason: string;
+  actor_user_id: string;
+  occurred_at: string;
+};
+
+/** 실제 예약에서 Backend가 바꿀 수 있는 항목만 담는다(환자 정보는 예약 변경 대상이 아니다). */
+export type AppointmentChange = {
+  serviceDate: string;
+  startTime: string;
+  careCategory: CareCategory;
+  procedure: ProcedureKind;
+  procedureSet: ProcedureSet;
+  upperSedation: boolean;
+  colonSedation: boolean;
 };
 
 type AppointmentListResponse = {
@@ -81,7 +112,12 @@ type PatientListResponse = {
   items: PatientSummaryResponse[];
 };
 
-export function proceduresFromDraft(draft: BookingDraft) {
+type ProcedureSelection = Pick<
+  BookingDraft,
+  "procedure" | "upperSedation" | "colonSedation"
+>;
+
+export function proceduresFromDraft(draft: ProcedureSelection) {
   const procedures: Array<{
     procedure_code: ProcedureCode;
     sedation_mode: "SEDATED" | "NON_SEDATED";
@@ -102,7 +138,7 @@ export function proceduresFromDraft(draft: BookingDraft) {
 }
 
 export function procedureSetFromDraft(
-  draft: BookingDraft,
+  draft: Pick<BookingDraft, "procedure" | "procedureSet">,
 ): ProcedureSetCode | undefined {
   if (draft.procedure !== "위·대장") return undefined;
   return draft.procedureSet === "세트90" ? "SET_90" : "SET_60";
@@ -163,7 +199,34 @@ export function mapAppointmentResponse(item: AppointmentResponse): Appointment {
       item.exception_memo ??
       "일정·예약 핵심정보만 Backend 연결됨. 확인·준비·수납은 정적 Prototype 영역입니다.",
     backendManaged: true,
+    rowVersion: item.row_version,
+    exceptionPending: item.exception_status === "PENDING" || undefined,
   };
+}
+
+export function bookingBucketOf(appointment: Appointment): BookingBucket {
+  if (appointment.sameDayExtension) return "SAME_DAY_EXTENSION";
+  if (appointment.afternoonException) return "AFTERNOON_EXCEPTION";
+  return "STANDARD_MORNING";
+}
+
+export function appointmentChangeFrom(appointment: Appointment): AppointmentChange {
+  return {
+    serviceDate: appointment.date,
+    startTime: appointment.start,
+    careCategory: appointment.careCategory,
+    procedure: appointment.procedure,
+    procedureSet: appointment.procedureSet ?? "세트60",
+    upperSedation: appointment.upperSedation ?? false,
+    colonSedation: appointment.colonSedation ?? false,
+  };
+}
+
+function requireRowVersion(appointment: Appointment): number {
+  if (!appointment.backendManaged || appointment.rowVersion === undefined) {
+    throw new ApiError(0, "Backend에 저장된 예약만 변경할 수 있습니다.");
+  }
+  return appointment.rowVersion;
 }
 
 function availabilityQuery(draft: BookingDraft) {
@@ -257,6 +320,84 @@ export const appointmentsApi = {
             : undefined,
       },
     });
+  },
+
+  /** 변경 중인 예약 자신은 점유·수용량 계산에서 뺀 가능 시간. */
+  changeAvailability(appointment: Appointment, change: AppointmentChange) {
+    const params = new URLSearchParams({
+      service_date: change.serviceDate,
+      booking_bucket: bookingBucketOf(appointment),
+      booking_origin: appointment.sameDay ? "SAME_DAY" : "ADVANCE",
+      exclude_appointment_id: appointment.id,
+    });
+    for (const procedure of proceduresFromDraft(change)) {
+      params.append("procedures", procedure.procedure_code);
+    }
+    const procedureSet = procedureSetFromDraft(change);
+    if (procedureSet) params.set("procedure_set", procedureSet);
+    return apiRequest<ScheduleAvailabilityResponse>(
+      `/api/appointments/availability?${params.toString()}`,
+    );
+  },
+
+  async change(
+    appointment: Appointment,
+    change: AppointmentChange,
+    reason: string,
+    csrfToken: string,
+  ) {
+    return apiRequest<AppointmentResponse>(`/api/appointments/${appointment.id}`, {
+      method: "PATCH",
+      csrfToken,
+      body: {
+        row_version: requireRowVersion(appointment),
+        reason: reason.trim(),
+        service_date: change.serviceDate,
+        start_time: change.startTime,
+        care_type: change.careCategory === "검진" ? "SCREENING" : "GENERAL",
+        procedures: proceduresFromDraft(change),
+        procedure_set: procedureSetFromDraft(change),
+      },
+    });
+  },
+
+  async cancel(appointment: Appointment, reason: string, csrfToken: string) {
+    return apiRequest<AppointmentResponse>(
+      `/api/appointments/${appointment.id}/cancel`,
+      {
+        method: "POST",
+        csrfToken,
+        body: { row_version: requireRowVersion(appointment), reason: reason.trim() },
+      },
+    );
+  },
+
+  async noShow(appointment: Appointment, reason: string, csrfToken: string) {
+    return apiRequest<AppointmentResponse>(
+      `/api/appointments/${appointment.id}/no-show`,
+      {
+        method: "POST",
+        csrfToken,
+        body: { row_version: requireRowVersion(appointment), reason: reason.trim() },
+      },
+    );
+  },
+
+  async confirmException(appointment: Appointment, memo: string, csrfToken: string) {
+    return apiRequest<AppointmentResponse>(
+      `/api/appointments/${appointment.id}/confirm-exception`,
+      {
+        method: "POST",
+        csrfToken,
+        body: { row_version: requireRowVersion(appointment), memo: memo.trim() },
+      },
+    );
+  },
+
+  history(appointmentId: string) {
+    return apiRequest<AppointmentHistoryEvent[]>(
+      `/api/appointments/${appointmentId}/history`,
+    );
   },
 
   createAdditionalSlot(

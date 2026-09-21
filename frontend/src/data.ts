@@ -68,6 +68,10 @@ export interface Appointment {
   exceptionConfirmedBy?: string;
   memo?: string;
   backendManaged?: boolean;
+  /** Backend 예약의 동시 수정 검사값. 변경·취소 요청에 그대로 돌려보낸다. */
+  rowVersion?: number;
+  /** 14:00 오후 예외가 아직 다른 직원의 확인을 기다리는지. */
+  exceptionPending?: boolean;
 }
 
 export interface PathologyCase {

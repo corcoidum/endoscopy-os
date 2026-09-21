@@ -212,6 +212,45 @@ def test_change_keeps_same_appointment_and_records_revision(
     assert events[1]["reason"] == "환자 요청으로 시간 변경"
 
 
+def test_availability_excludes_the_appointment_being_changed(
+    client: TestClient, scheduling_admins: SeededIdentity
+) -> None:
+    """변경 중인 예약이 스스로 차지한 시간과 수용량을 가능 Slot 계산에서 뺀다."""
+
+    csrf_token = _login_admin(client)
+    patient_id = _create_patient(client, csrf_token)
+    booked_ids = []
+    # 대장 3건으로 목요일 대장 수용량(3)을 모두 채운다.
+    for start_time in ("09:00", "10:00", "11:00"):
+        booked = _book(
+            client,
+            csrf_token,
+            patient_id,
+            service_date=iso(BOOKING_DAY),
+            start_time=start_time,
+            procedures=COLON,
+        )
+        assert booked.status_code == 201, booked.text
+        booked_ids.append(booked.json()["id"])
+
+    full = _availability(client, iso(BOOKING_DAY), ["COLON"])
+    assert full.status_code == 200, full.text
+    assert full.json()["slots"] == []
+
+    params = [
+        ("service_date", iso(BOOKING_DAY)),
+        ("procedures", "COLON"),
+        ("booking_bucket", "STANDARD_MORNING"),
+        ("exclude_appointment_id", booked_ids[0]),
+    ]
+    for_change = client.get("/api/appointments/availability", params=params)
+    assert for_change.status_code == 200, for_change.text
+    starts = [slot["start_time"] for slot in for_change.json()["slots"]]
+    # 자기 자리(09:00)는 다시 고를 수 있고, 다른 예약과 겹치는 시각은 여전히 막힌다.
+    assert "09:00:00" in starts
+    assert "10:00:00" not in starts
+
+
 def test_stale_or_conflicting_change_leaves_appointment_unchanged(
     client: TestClient, scheduling_admins: SeededIdentity
 ) -> None:

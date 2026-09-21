@@ -498,8 +498,14 @@ def available_slots(
     booking_origin: BookingOrigin = "ADVANCE",
     procedure_set: ProcedureSet | None = None,
     additional_slot_id: UUID | None = None,
+    exclude_appointment_id: UUID | None = None,
     now: datetime | None = None,
 ) -> tuple[int, list[tuple[time, time]], str]:
+    """가능 Slot을 계산한다.
+
+    `exclude_appointment_id`는 변경 중인 예약이 스스로 점유한 시간과 Capacity를
+    계산에서 빼, 현재 시각을 그대로 두거나 가까운 시각으로 옮길 수 있게 한다.
+    """
     local_now = (now or datetime.now(UTC)).astimezone(SEOUL)
     if booking_origin == "SAME_DAY":
         if service_date != local_now.date():
@@ -518,7 +524,12 @@ def available_slots(
     if policy.closed or policy.morning is None:
         raise _schedule_closed(service_date)
     duration = procedure_duration(procedure_codes, procedure_set)
-    context = _load_context(db, service_date, booking_bucket=booking_bucket)
+    context = _load_context(
+        db,
+        service_date,
+        booking_bucket=booking_bucket,
+        exclude_appointment_id=exclude_appointment_id,
+    )
 
     if booking_bucket == "SAME_DAY_EXTENSION":
         if procedure_codes != {"UPPER"}:
@@ -542,6 +553,7 @@ def available_slots(
                     Appointment.additional_slot_id.is_not(None),
                     Appointment.service_date == service_date,
                     Appointment.occupies_slot.is_(True),
+                    Appointment.id != exclude_appointment_id,
                 )
             ).all()
         )

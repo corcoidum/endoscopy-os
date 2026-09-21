@@ -70,6 +70,7 @@ def get_availability(
     procedure_set: ProcedureSet | None = None,
     booking_origin: BookingOrigin = "ADVANCE",
     additional_slot_id: UUID | None = None,
+    exclude_appointment_id: UUID | None = None,
     _: Principal = Depends(appointment_reader),
     db: Session = Depends(get_db),
 ) -> ScheduleAvailabilityResponse:
@@ -88,6 +89,7 @@ def get_availability(
         booking_bucket=booking_bucket,
         booking_origin=booking_origin,
         additional_slot_id=additional_slot_id,
+        exclude_appointment_id=exclude_appointment_id,
     )
     additional_slots_by_start: dict[object, ScheduleAdditionalSlot] = {}
     if booking_bucket == "SAME_DAY_EXTENSION":

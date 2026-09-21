@@ -5297,3 +5297,122 @@ button.data-table__row:hover {
     color: #000 !important;
   }
 }
+
+/* 실제 예약 변경·취소·No-show·오후 예외 확인 Dialog */
+.schedule-action-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgb(15 23 42 / 25%);
+}
+
+.schedule-action-dialog__header,
+.schedule-action-dialog__footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+}
+
+.schedule-action-dialog__header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.schedule-action-dialog__header h2 {
+  margin: 2px 0 0;
+  font-size: 17px;
+  letter-spacing: -0.03em;
+}
+
+.schedule-action-dialog__header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.schedule-action-dialog__body {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.schedule-action-dialog__footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+}
+
+.schedule-action-dialog__notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--blue-soft);
+  color: #1f4f8f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.schedule-action-dialog__error {
+  margin: 0;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.schedule-action-dialog__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.schedule-action-dialog__choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.appointment-history {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.appointment-history > li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.appointment-history__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.appointment-history__head time {
+  color: var(--muted);
+}
+
+.appointment-history__reason {
+  margin: 0;
+  font-size: 13px;
+}
+
+.appointment-history__changes {
+  margin: 0;
+  padding-left: 16px;
+  color: #4e596d;
+  font-size: 12px;
+}

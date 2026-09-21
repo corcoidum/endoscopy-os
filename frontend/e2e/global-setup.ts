@@ -109,10 +109,19 @@ export default async function globalSetup() {
     sex: "FEMALE",
   });
   const patientId = (created.patient as { id: string }).id;
+  // 일정 예외 시험 예약은 다른 환자로 만들어 변경 시험의 카드와 구분한다.
+  const otherPatient = await session.expect("POST", "/api/patients", 201, {
+    chart_number: `${chartNumber}-B`,
+    name: "합성이투비",
+    birth_date: "1975-05-05",
+    sex: "MALE",
+  });
+  const otherPatientId = (otherPatient.patient as { id: string }).id;
 
-  // 월·화·목·금 오전(09:00~12:00) 중 오늘 이후 가장 가까운 날에 두 시각 이상 비어 있는 날을 고른다.
+  // 월·화·목·금 오전(09:00~12:00) 중 오늘 이후 두 시각 이상 비어 있는 날을 차례로 고른다.
   const today = seoulToday();
-  for (let offset = 1; offset <= 10; offset += 1) {
+  const openDates: Array<{ serviceDate: string; starts: string[] }> = [];
+  for (let offset = 1; offset <= 21 && openDates.length < 2; offset += 1) {
     const serviceDate = addDays(today, offset);
     const weekday = new Date(`${serviceDate}T00:00:00Z`).getUTCDay();
     if (![1, 2, 4, 5].includes(weekday)) continue;
@@ -124,26 +133,38 @@ export default async function globalSetup() {
     const starts = ((availability.payload?.slots as Array<{ start_time: string }>) ?? []).map(
       (slot) => slot.start_time.slice(0, 5),
     );
-    if (availability.status !== 200 || starts.length < 2) continue;
+    if (availability.status === 200 && starts.length >= 2) {
+      openDates.push({ serviceDate, starts });
+    }
+  }
+  if (openDates.length < 2) {
+    throw new Error("E2E 합성 예약을 넣을 빈 날짜를 찾지 못했습니다.");
+  }
 
-    const booked = await session.expect("POST", "/api/appointments", 201, {
-      patient_id: patientId,
+  const book = async (bookedPatientId: string, serviceDate: string, startTime: string) =>
+    session.expect("POST", "/api/appointments", 201, {
+      patient_id: bookedPatientId,
       service_date: serviceDate,
-      start_time: starts[0],
+      start_time: startTime,
       care_type: "GENERAL",
       booking_bucket: "STANDARD_MORNING",
       procedures: [{ procedure_code: "UPPER", sedation_mode: "NON_SEDATED" }],
     });
-    const seed: E2ESeed = {
-      appointmentId: String(booked.id),
-      patientName,
-      chartNumber,
-      serviceDate,
-      startTime: starts[0],
-      alternativeStartTime: starts[starts.length - 1],
-    };
-    process.env.E2E_SEED = JSON.stringify(seed);
-    return;
-  }
-  throw new Error("E2E 합성 예약을 넣을 빈 날짜를 찾지 못했습니다.");
+
+  const [changeDay, overrideDay] = openDates;
+  const booked = await book(patientId, changeDay.serviceDate, changeDay.starts[0]);
+  await book(otherPatientId, overrideDay.serviceDate, overrideDay.starts[0]);
+
+  const seed: E2ESeed = {
+    appointmentId: String(booked.id),
+    patientName,
+    chartNumber,
+    serviceDate: changeDay.serviceDate,
+    startTime: changeDay.starts[0],
+    alternativeStartTime: changeDay.starts[changeDay.starts.length - 1],
+    overrideDate: overrideDay.serviceDate,
+    overrideStartTime: overrideDay.starts[0],
+    runStamp: stamp,
+  };
+  process.env.E2E_SEED = JSON.stringify(seed);
 }

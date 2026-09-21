@@ -617,7 +617,19 @@ function Workbench({
         />
       );
     }
-    if (activeView === "admin") return <AdminView />;
+    if (activeView === "admin") {
+      return (
+        <AdminView
+          canManageOverrides={canApproveExtension}
+          csrfToken={csrfToken}
+          onScheduleChanged={(message) => {
+            // 규칙이 바뀌면 달력·예약 Form이 쓰는 날짜별 규칙도 다시 받는다.
+            setScheduleRevision((current) => current + 1);
+            notify(message);
+          }}
+        />
+      );
+    }
 
     return (
       <WeekSchedule

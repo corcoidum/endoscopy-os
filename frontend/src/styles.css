@@ -5416,3 +5416,120 @@ button.data-table__row:hover {
   color: #4e596d;
   font-size: 12px;
 }
+
+/* 관리자: 날짜별 일정 예외 */
+.override-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.override-panel__heading h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.override-panel__heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.override-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.override-form .field {
+  min-width: 120px;
+}
+
+.override-form__reason {
+  flex: 1 1 220px;
+}
+
+.override-form__error {
+  flex-basis: 100%;
+}
+
+.override-decision {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--blue-soft);
+  color: #1f4f8f;
+  font-size: 12px;
+}
+
+.override-decision ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.override-decision .text-button {
+  justify-self: end;
+}
+
+.override-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.override-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.override-row--revoked,
+.override-row--superseded {
+  opacity: 0.6;
+}
+
+.override-row__main {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.override-row__main small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.override-row em {
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.override-row__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.override-row__revoke {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.override-row__revoke .field {
+  flex: 1 1 240px;
+}

@@ -9,6 +9,7 @@ import {
   statisticsPeriodLabel,
 } from "./calendarDates";
 import { Icon } from "./icons";
+import { ScheduleOverridePanel } from "./ScheduleOverridePanel";
 import type { StatisticsPeriod } from "./viewTypes";
 
 export function ConfirmationView({
@@ -235,7 +236,15 @@ export function StatisticsView({
   );
 }
 
-export function AdminView() {
+export function AdminView({
+  canManageOverrides,
+  csrfToken,
+  onScheduleChanged,
+}: {
+  canManageOverrides: boolean;
+  csrfToken: string | null;
+  onScheduleChanged: (message: string) => void;
+}) {
   const settings = [
     {
       title: "요일별 운영시간",
@@ -256,11 +265,6 @@ export function AdminView() {
       title: "오후 예외",
       description: "14:00 · 하루 1명 · 사유와 관리자 확인 필수",
       value: "허용",
-    },
-    {
-      title: "날짜별 예외",
-      description: "2026-07-29 10:30~11:00 장비 점검 차단",
-      value: "승인됨",
     },
     {
       title: "예약금",
@@ -292,6 +296,12 @@ export function AdminView() {
           </button>
         ))}
       </div>
+      {canManageOverrides && (
+        <ScheduleOverridePanel
+          csrfToken={csrfToken}
+          onScheduleChanged={onScheduleChanged}
+        />
+      )}
       <div className="admin-note">
         <Icon name="info" />
         <p>

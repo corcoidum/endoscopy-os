@@ -32,7 +32,10 @@ async function openWeekOf(page: Page, serviceDate: string) {
 }
 
 function appointmentCard(page: Page, start: string, chartNumber: string) {
-  return page.getByRole("button", { name: new RegExp(`^${start}부터 .*${chartNumber}`) });
+  // 차트번호 뒤 쉼표까지 맞춰, 같은 접두어를 가진 다른 합성 환자와 구분한다.
+  return page.getByRole("button", {
+    name: new RegExp(`^${start}부터 .*, ${chartNumber}, `),
+  });
 }
 
 test("실제 예약을 변경하고 이력을 확인한 뒤 취소한다", async ({ page }) => {

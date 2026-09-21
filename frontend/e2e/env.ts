@@ -17,6 +17,10 @@ export type E2ESeed = {
   serviceDate: string;
   startTime: string;
   alternativeStartTime: string;
+  /** 일정 예외 시험용 예약. 변경·취소 시험과 겹치지 않는 다른 날짜에 둔다. */
+  overrideDate: string;
+  overrideStartTime: string;
+  runStamp: string;
 };
 
 export function readSeed(): E2ESeed {

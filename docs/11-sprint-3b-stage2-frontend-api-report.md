@@ -27,8 +27,8 @@
 - 신규 예약 Modal에서 위 항목은 UI 시안으로 남아 있으며 이번 단계에는 저장하지 않는다.
 - Backend 예약의 변경·2차 확인 편집은 화면에서 막고 다음 연결 단계임을 안내한다.
 - 오늘 화면·확인 업무·통계·조직검체는 아직 기존 합성 Fixture 기반이다.
-- 예약 변경·취소·No-show·이력 조회, 오후 예외 확인, 일정 예외 관리 화면은
-  Backend API만 있고 화면 연결이 남아 있다.
+- 예약 상세의 준비·약제·결제 편집기는 저장되지 않는 Prototype이라 실제 예약에서는
+  막혀 있다.
 
 ## 오류·복구 흐름
 
@@ -113,7 +113,52 @@
 
 - Alembic의 Schema 비교는 부분 Index의 `WHERE` 조건 차이까지는 비교하지 않는다.
   조건을 바꿀 때는 Migration과 Model을 함께 확인해야 한다.
-- 예약 변경·취소·No-show·이력, 오후 예외 확인, 일정 예외 관리 화면 연결이 이
-  단계의 남은 범위다.
 - Frontend Test는 순수 함수 단위만 있다. 상태를 바꾸는 흐름을 연결할 때 Browser
   Smoke Test를 함께 둔다.
+
+## Sprint 3B 마무리 연결 (2026-09-21)
+
+Backend에만 있던 예약 상태 변경과 일정 예외 관리를 화면에 연결했다.
+
+| 화면/기능 | Backend 연결 | 비고 |
+|---|---|---|
+| 예약 변경 | 연결 | `PATCH /api/appointments/{id}`. 날짜·시각·검사·수면·세트·진료 구분과 사유만 다룬다. 당일 예약은 날짜, 연장 슬롯 예약은 시각을 잠근다 |
+| 변경용 가능 시간 | 연결 | `GET /api/appointments/availability?exclude_appointment_id=`로 자기 예약의 점유·수용량을 뺀다(이번에 Backend에 추가) |
+| 예약 취소·No-show | 연결 | 사유 필수. No-show는 서울 기준 시작시각 이후에만 |
+| 예약 이력 | 연결 | 상세의 "이력·결과" 탭. 변경 전후 값을 풀어 쓴다 |
+| 14:00 오후 예외 확인 | 연결 | 확인 메모 필수. 등록자와 같은 직원이면 Backend가 거부한다 |
+| 날짜별 일정 예외 관리 | 연결 | 관리자 화면에서 등록(승인 대기)·승인·취소. 승인·취소 시 어긋난 기존 예약을 보여 주고 자동으로 바꾸지 않는다 |
+
+동시 수정은 모든 요청에 `row_version`을 실어 막는다. `409 STALE_ROW_VERSION`이면
+창을 닫고 최신 목록을 다시 받고, 시간충돌·수용량 초과면 가능 시간을 다시 조회한다.
+
+### 함께 고친 결함
+
+- 달력 기준일이 QA Fixture에 맞춘 상수 2026-09-18로 고정돼, 날짜가 지나자 주간
+  보드가 지난주로 열리고 예약 날짜 선택기가 지난 날짜를 허용했다. 서울 기준 실제
+  오늘을 쓰도록 고쳤다.
+
+### Browser Smoke Test
+
+`scripts/e2e.ps1`이 일회용 PostgreSQL Container, Migration, 합성 관리자 Seed,
+Backend, Vite, 설치된 Chrome을 차례로 띄워 실행하고 끝나면 정리한다.
+
+- 예약 변경·이력·취소: 로그인 → 예약이 있는 주로 이동 → 시각 변경 → 보드 반영 →
+  이력의 변경 전후 값과 사유 → 취소 후 보드에서 사라짐. Database에도
+  생성·변경·취소 이력과 `row_version` 3이 남는 것을 확인했다.
+- 일정 예외: 예약이 있는 날에 휴진 등록 → 승인 → 영향받는 예약 표시 → 사유를
+  남겨 취소.
+
+### 검증 결과
+
+- `scripts/verify.ps1`: 통과
+  - Backend: `ruff`·`mypy` 통과, `pytest` 87개 통과(PostgreSQL 전용 3개 skip)
+  - Frontend: `oxlint`·`tsc`(src·tests·e2e) 통과, Test 33개 통과, Build 통과
+- `scripts/e2e.ps1`: Browser Test 2개 통과
+
+### 남은 제한
+
+- 예약을 변경해도 1·2차 확인·PACS 확인 무효화는 아직 하지 않는다(Sprint 4).
+- 예약 등록 Wizard(1,479줄)의 Step별 분리는 하지 않았다. 변경 흐름을 Backend
+  API와 1:1로 맞춘 전용 Dialog로 만들면서 Wizard를 거치지 않게 됐기 때문이다.
+- Browser Smoke Test는 Docker와 설치된 Chrome이 필요해 `verify.ps1`에 넣지 않았다.

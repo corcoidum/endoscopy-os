@@ -2,10 +2,10 @@
 
 원내 내부망에서 사용하는 내시경 예약·검사·조직검사 Follow-up 운영
 시스템입니다. EMR 또는 PACS를 대체하지 않으며, 현재 구현 범위는
-**Phase 4 · Sprint 3B 2단계(Frontend 실제 API 연결) 진행 중**입니다. 환자 기능과
-예약 조회·등록은 Frontend까지 실제 API에 연결되어 있습니다. 예약 변경·취소·
-No-show·오후 예외 확인·날짜별 일정 예외 관리는 Backend API까지 구현되었고,
-화면 연결이 남아 있습니다.
+**Phase 4 · Sprint 3B 2단계(Frontend 실제 API 연결)**까지입니다. 환자 기능과
+예약 조회·등록·변경·취소·No-show·이력, 14:00 오후 예외 확인, 날짜별 일정 예외
+관리가 Frontend까지 실제 API에 연결되어 있습니다. 확인 업무·준비·결제·통계·
+조직검체는 이후 Sprint 범위라 아직 합성 Fixture로 동작합니다.
 
 > 실제 환자정보를 입력하지 마세요. Patient 기능은 구현했지만 개발 PC의 Disk
 > 암호화와 실제 원내 PC 운영 Gate가 끝나지 않았습니다. Test·Seed는 합성
@@ -68,7 +68,7 @@ No-show·오후 예외 확인·날짜별 일정 예외 관리는 Backend API까�
 - 예약별 생성·변경·취소·No-show·확인 History API
 - 실제 PostgreSQL에서 Migration, 동시 예약, UTC Session Timezone 통합 Test
 
-### Sprint 3B 2단계 Frontend 연결 진행 중
+### Sprint 3B 2단계 Frontend 연결
 
 실제 API에 연결된 화면:
 
@@ -77,13 +77,15 @@ No-show·오후 예외 확인·날짜별 일정 예외 관리는 Backend API까�
 - 당일 위내시경 등록과 관리자가 승인하는 30분 당일 연장 슬롯
 - 날짜별 휴진·운영시간·수용량·오후 예외 허용 규칙(`day-policies`)을 일정 보드와
   예약 Form의 판정 기준으로 사용
+- 실제 예약의 변경(날짜·시각·검사·수면·세트·진료 구분, 사유 필수), 취소, 시작
+  이후 No-show 기록, 예약별 이력 조회. `row_version`으로 동시 수정을 막는다.
+- 14:00 오후 예외 확인(등록자가 아닌 직원)
+- 관리자 화면의 날짜별 일정 예외 등록·승인·취소와 영향받는 예약 안내
 
 아직 합성 Fixture로 동작하는 화면:
 
 - 오늘 화면의 우선 처리 Queue, 확인 업무, 통계, 조직검체
-- 예약 변경: 실제 예약은 화면에서 변경을 막아 두었고, 변경 Form은 합성 Fixture
-  예약에서만 동작합니다(저장되지 않음).
-- 예약 취소·No-show·이력 조회, 오후 예외 확인, 일정 예외 관리
+- 예약 상세의 준비·약제·결제 편집기(저장되지 않으며 실제 예약에서는 막혀 있음)
 
 개발 품질 기준:
 
@@ -91,6 +93,8 @@ No-show·오후 예외 확인·날짜별 일정 예외 관리는 Backend API까�
   `tsc`(src·tests)·Test·Build를 함께 검사합니다.
 - PostgreSQL 통합 Test는 Migration을 적용한 Schema와 ORM metadata의 차이도
   검사합니다.
+- `scripts/e2e.ps1`이 일회용 PostgreSQL과 실제 Backend·Browser로 예약 변경·이력·
+  취소와 일정 예외 승인·취소 흐름을 확인합니다.
 
 상세 결과는 [Sprint 3B 2단계 보고서](./docs/11-sprint-3b-stage2-frontend-api-report.md)를
 참고하세요.
@@ -105,7 +109,7 @@ No-show·오후 예외 확인·날짜별 일정 예외 관리는 Backend API까�
 | Sprint 1 | 인증·Session·CSRF·RBAC, PostgreSQL·Alembic, Caddy 내부 HTTPS, Docker Compose | 완료 | [05](./docs/05-sprint-1-implementation-report.md) |
 | Sprint 2 | Patient 등록·검색·정정 History, 차트번호 중복, 나이 계산, 연락처 암호화 | 완료 | [06](./docs/06-sprint-2-entry-gate.md), [07](./docs/07-sprint-2-implementation-report.md) |
 | Sprint 3A | 예약 Backend Core(점유시간·운영시간·Capacity·충돌 차단·API), 세트60/90 | 완료 | [08](./docs/08-sprint-3a-implementation-report.md) |
-| **Sprint 3B** | 날짜별 Override, 14:00 오후 예외 승인, 예약 변경·취소·No-show·Revision, 일정·예약 Form 실제 API 전환, PostgreSQL 동시성 통합 Test | **진행 중** (1단계 Backend 완료, 2단계 Frontend 연결 중) | [10](./docs/10-sprint-3b-stage1-backend-report.md), [11](./docs/11-sprint-3b-stage2-frontend-api-report.md) |
+| **Sprint 3B** | 날짜별 Override, 14:00 오후 예외 승인, 예약 변경·취소·No-show·Revision, 일정·예약 Form 실제 API 전환, PostgreSQL 동시성 통합 Test | **진행 중** (1단계 Backend 완료, 2단계 Frontend 연결 완료 · 종료 검토) | [10](./docs/10-sprint-3b-stage1-backend-report.md), [11](./docs/11-sprint-3b-stage2-frontend-api-report.md) |
 | Sprint 4 | 1차·2차 이중확인, PACS 수기확인, 장정결·약제·추가검사 | 예정 | — |
 | Sprint 5 | 예약금(정책 Version·거래원장), 취소, No-show, D-1 연락 | 예정 | — |
 | Sprint 6 | 실제 검사 완료, Biopsy·CLO 검사대장, 병리 Follow-up·Overdue, Risk Dashboard, 통계 | 예정 | [09 병리 PDF Import 설계안](./docs/09-pathology-pdf-import-security-design.md) |
@@ -505,8 +509,7 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
 - 로그인 실패는 계정 단위 잠금과 Client IP별 제한을 함께 적용합니다. IP별
   실패 기록은 Backend Process Memory에만 있어 재시작 시 초기화됩니다.
 - 사용자·역할 변경의 영구 Audit Log는 Sprint 7 범위입니다.
-- 예약 변경·취소·No-show와 그 이력은 Backend에 저장되지만, 일정 화면에서
-  조회·변경하는 기능은 아직 연결되지 않았습니다(Sprint 3B 2단계 남은 범위).
+- 예약을 변경해도 1·2차 확인·PACS 확인 무효화는 아직 하지 않습니다(Sprint 4 범위).
 - PostgreSQL 통합 Test는 `TEST_POSTGRES_URL`을 지정했을 때만 실행됩니다.
   실행 방법은 [Sprint 3B 1단계 보고서](./docs/10-sprint-3b-stage1-backend-report.md)를
   참고하세요.

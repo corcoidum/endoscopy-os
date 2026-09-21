@@ -163,6 +163,15 @@ npm run build
 Pop-Location
 ```
 
+실제 PostgreSQL·Backend·Browser로 예약 변경·이력·취소 흐름을 확인하는 Smoke Test는
+Docker가 필요해 `verify.ps1`과 따로 실행합니다. 매번 일회용 Database Container를
+만들고 끝나면 지우며, 합성 계정과 환자만 씁니다. Browser는 설치된 Google Chrome을
+씁니다(`E2E_BROWSER_CHANNEL`로 변경 가능).
+
+```powershell
+.\scripts\e2e.ps1
+```
+
 `backend\.venv` 또는 `frontend\node_modules`가 없다면 아래의 개발·Test 절에
 있는 최초 설치 명령부터 실행합니다. Test와 Seed에는 합성 데이터만 사용합니다.
 

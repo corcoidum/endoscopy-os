@@ -3,6 +3,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/.vite-dev*.log
+frontend/test-results/
+frontend/playwright-report/
 
 # Local editor and operating-system files
 .obsidian/

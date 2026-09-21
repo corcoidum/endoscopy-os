@@ -1,7 +1,6 @@
 import type { Appointment } from "./data";
 import type { StatisticsPeriod, ViewId } from "./viewTypes";
 
-export const REFERENCE_TODAY = "2026-09-18";
 export const KOREAN_WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
 
 export function parseIsoDate(value: string): Date {
@@ -58,7 +57,7 @@ export function weekDaysFor(value: string) {
     return {
       date: iso,
       label: `${KOREAN_WEEKDAYS[date.getDay()]} ${date.getMonth() + 1}/${date.getDate()}`,
-      today: iso === REFERENCE_TODAY,
+      today: iso === seoulTodayIso(),
     };
   });
 }

@@ -98,7 +98,7 @@ export function draftFromAppointment(
     procedureSet: "세트60",
     upperSedation: true,
     colonSedation: false,
-    date: bookingOrigin === "SAME_DAY" ? seoulTodayIso() : "2026-08-01",
+    date: seoulTodayIso(),
     start: bookingOrigin === "SAME_DAY" ? "09:00" : "10:30",
     bucket: "STANDARD_MORNING",
     bookingOrigin,

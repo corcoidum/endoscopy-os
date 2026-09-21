@@ -6,7 +6,7 @@ import {
   koreanDateLabel,
   monthGridDays,
   parseIsoDate,
-  REFERENCE_TODAY,
+  seoulTodayIso,
 } from "./calendarDates";
 import {
   dayAvailability,
@@ -18,7 +18,10 @@ import type { DayPolicyLookup } from "./dayPolicies";
 import type { Appointment } from "./data";
 
 export const BOOKING_CALENDAR_WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"] as const;
-export const BOOKING_WINDOW_END = addCalendarDays(addCalendarMonths(REFERENCE_TODAY, 4), -1);
+/** 예약을 받는 마지막 날(오늘부터 4개월). 자정을 넘긴 화면도 새 날짜를 쓰도록 매번 계산한다. */
+export function bookingWindowEnd(today = seoulTodayIso()): string {
+  return addCalendarDays(addCalendarMonths(today, 4), -1);
+}
 
 export function shortDateLabel(value: string): string {
   const date = parseIsoDate(value);
@@ -57,6 +60,8 @@ export function BookingDatePicker({
   excludeAppointmentId?: string;
   onSelectDate: (date: string) => void;
 }) {
+  const today = seoulTodayIso();
+  const windowEnd = bookingWindowEnd(today);
   const [visibleMonth, setVisibleMonth] = useState(() =>
     addCalendarMonths(draft.date, 0),
   );
@@ -68,8 +73,8 @@ export function BookingDatePicker({
   const nextAvailable: ReturnType<typeof dayAvailability>[] = [];
   for (
     let date =
-      draft.date >= REFERENCE_TODAY ? addCalendarDays(draft.date, 1) : REFERENCE_TODAY;
-    date <= BOOKING_WINDOW_END && nextAvailable.length < 3;
+      draft.date >= today ? addCalendarDays(draft.date, 1) : today;
+    date <= windowEnd && nextAvailable.length < 3;
     date = addCalendarDays(date, 1)
   ) {
     const availability = availabilityFor(date);
@@ -88,7 +93,7 @@ export function BookingDatePicker({
           type="button"
           className="booking-calendar__nav"
           aria-label="이전 달"
-          disabled={visibleMonth <= addCalendarMonths(REFERENCE_TODAY, 0)}
+          disabled={visibleMonth <= addCalendarMonths(today, 0)}
           onClick={() => setVisibleMonth(addCalendarMonths(visibleMonth, -1))}
         >
           ‹
@@ -100,7 +105,7 @@ export function BookingDatePicker({
           type="button"
           className="booking-calendar__nav"
           aria-label="다음 달"
-          disabled={visibleMonth >= addCalendarMonths(BOOKING_WINDOW_END, 0)}
+          disabled={visibleMonth >= addCalendarMonths(windowEnd, 0)}
           onClick={() => setVisibleMonth(addCalendarMonths(visibleMonth, 1))}
         >
           ›
@@ -125,7 +130,7 @@ export function BookingDatePicker({
           }
           const availability = availabilityFor(day.iso);
           const isSelected = day.iso === draft.date;
-          const outOfWindow = day.iso < REFERENCE_TODAY || day.iso > BOOKING_WINDOW_END;
+          const outOfWindow = day.iso < today || day.iso > windowEnd;
           const count = availability.availableStarts.length;
           const state = availability.closed
             ? "is-closed"
@@ -178,7 +183,7 @@ export function BookingDatePicker({
             </button>
           ))
         ) : (
-          <span>{shortDateLabel(BOOKING_WINDOW_END)}까지 가능한 날짜가 없습니다.</span>
+          <span>{shortDateLabel(windowEnd)}까지 가능한 날짜가 없습니다.</span>
         )}
       </div>
     </div>

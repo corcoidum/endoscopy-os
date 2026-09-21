@@ -6,7 +6,7 @@ import {
 } from "react";
 import { calendarQueries } from "./calendarQueries";
 import { useDayPolicies } from "./dayPolicies";
-import { BOOKING_WINDOW_END } from "./BookingDatePicker";
+import { bookingWindowEnd } from "./BookingDatePicker";
 import {
   initialAppointments,
   initialPathologyCases,
@@ -33,7 +33,7 @@ import {
   addCalendarMonths,
   addCalendarYears,
   periodLabel,
-  REFERENCE_TODAY,
+  seoulTodayIso,
   statisticsPeriodLabel,
 } from "./calendarDates";
 import { hasAnyPermission, NAVIGATION, roleLabel } from "./navigation";
@@ -75,7 +75,7 @@ function Workbench({
   logoutError: string;
 }) {
   const [activeView, setActiveView] = useState<ViewId>("week");
-  const [calendarDate, setCalendarDate] = useState(REFERENCE_TODAY);
+  const [calendarDate, setCalendarDate] = useState(seoulTodayIso);
   const [statisticsPeriod, setStatisticsPeriod] =
     useState<StatisticsPeriod>("week");
   const [appointments, setAppointments] =
@@ -126,12 +126,14 @@ function Workbench({
       : undefined;
 
   // 달력이 보여 주는 기간과 예약 Wizard가 훑는 예약 창을 모두 덮도록 규칙을 받는다.
+  const today = seoulTodayIso();
+  const windowEnd = bookingWindowEnd(today);
   const calendarRange = calendarQueries(activeView, calendarDate);
   const calendarRangeStart = calendarRange[0].startDate;
   const calendarRangeEnd = calendarRange[calendarRange.length - 1].endDate;
   const { dayPolicy, error: dayPolicyError } = useDayPolicies(
-    calendarRangeStart < REFERENCE_TODAY ? calendarRangeStart : REFERENCE_TODAY,
-    calendarRangeEnd > BOOKING_WINDOW_END ? calendarRangeEnd : BOOKING_WINDOW_END,
+    calendarRangeStart < today ? calendarRangeStart : today,
+    calendarRangeEnd > windowEnd ? calendarRangeEnd : windowEnd,
     scheduleRevision,
   );
 
@@ -757,7 +759,7 @@ function Workbench({
             <button
               className="secondary-button"
               onClick={() => {
-                setCalendarDate(REFERENCE_TODAY);
+                setCalendarDate(seoulTodayIso());
                 if (!["month", "week", "day", "statistics"].includes(activeView)) {
                   setActiveView("today");
                 }

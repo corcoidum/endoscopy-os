@@ -1,6 +1,7 @@
 import { ApiError, apiRequest } from "./api.ts";
 import type { Appointment, CareCategory, ProcedureKind, ProcedureSet } from "./data";
 import type { BookingDraft } from "./scheduler";
+import type { VerificationState } from "./verificationsApi";
 
 export type ProcedureCode = "UPPER" | "COLON";
 export type ProcedureSetCode = "SET_60" | "SET_90";
@@ -39,6 +40,7 @@ export type AppointmentResponse = {
   exception_reason: string | null;
   exception_memo: string | null;
   procedures: AppointmentProcedureResponse[];
+  verification_state: VerificationState;
   row_version: number;
 };
 
@@ -183,7 +185,8 @@ export function mapAppointmentResponse(item: AppointmentResponse): Appointment {
     deposit: "대기",
     medication: "대기",
     d1: "대기",
-    verification: "대기",
+    // 인적사항 이중확인만 실제 값이다. 검사 준비 완료를 뜻하지 않는다.
+    verification: item.verification_state === "VERIFIED" ? "완료" : "대기",
     pacs: "대기",
     status: "예약",
     afternoonException: item.booking_bucket === "AFTERNOON_EXCEPTION" || undefined,
@@ -200,6 +203,7 @@ export function mapAppointmentResponse(item: AppointmentResponse): Appointment {
       "일정·예약 핵심정보만 Backend 연결됨. 확인·준비·수납은 정적 Prototype 영역입니다.",
     backendManaged: true,
     rowVersion: item.row_version,
+    verificationState: item.verification_state,
     exceptionPending: item.exception_status === "PENDING" || undefined,
   };
 }

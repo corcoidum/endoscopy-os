@@ -23,6 +23,7 @@ export const NAVIGATION: Array<{
     icon: "confirmation",
     permissions: [
       "appointment.update",
+      "verification.primary",
       "verification.secondary",
       "verification.pacs",
       "procedure.write",

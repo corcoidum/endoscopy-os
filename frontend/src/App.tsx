@@ -51,7 +51,8 @@ import {
   PathologyDrawer,
   PathologyLedger,
 } from "./PathologyViews";
-import { AdminView, ConfirmationView, StatisticsView } from "./ReportViews";
+import { AdminView, StatisticsView } from "./ReportViews";
+import { VerificationQueueView } from "./VerificationQueueView";
 import {
   DayView,
   MonthView,
@@ -97,6 +98,8 @@ function Workbench({
     appointmentId?: string;
   } | null>(null);
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  // 확인 업무 화면이 불러온 실제 예약. 달력 기간 밖 예약도 상세를 열 수 있게 한다.
+  const [queueAppointments, setQueueAppointments] = useState<Appointment[]>([]);
   // Backend 예약의 변경·취소·No-show·오후 예외 확인 Dialog.
   const [scheduleAction, setScheduleAction] = useState<{
     kind: "change" | AppointmentReasonAction;
@@ -116,6 +119,7 @@ function Workbench({
   const canVerifyIdentity = hasAnyPermission(user, [
     "verification.secondary",
   ]);
+  const canPrimaryVerify = hasAnyPermission(user, ["verification.primary"]);
   const canWritePathology = hasAnyPermission(user, ["pathology.write"]);
   const visibleNavigation = useMemo(
     () =>
@@ -581,11 +585,12 @@ function Workbench({
     }
     if (activeView === "confirmation") {
       return (
-        <ConfirmationView
-          appointments={appointments}
-          onSelect={(id) => {
-            setSelectedId(id);
-            setDrawer({ kind: "appointment", id });
+        <VerificationQueueView
+          revision={scheduleRevision}
+          onLoaded={setQueueAppointments}
+          onOpen={(appointment) => {
+            setSelectedId(appointment.id);
+            setDrawer({ kind: "appointment", id: appointment.id });
           }}
         />
       );
@@ -659,12 +664,14 @@ function Workbench({
     notify(`${message} 최신 내용을 다시 불러왔습니다.`);
   };
   const scheduleActionAppointment = scheduleAction
-    ? backendAppointments.find((item) => item.id === scheduleAction.appointmentId)
+    ? (backendAppointments.find((item) => item.id === scheduleAction.appointmentId) ??
+      queueAppointments.find((item) => item.id === scheduleAction.appointmentId))
     : undefined;
 
   const drawerAppointment =
     drawer?.kind === "appointment"
       ? backendAppointments.find((appointment) => appointment.id === drawer.id) ??
+        queueAppointments.find((appointment) => appointment.id === drawer.id) ??
         appointments.find((appointment) => appointment.id === drawer.id)
       : undefined;
   const drawerPathology =
@@ -868,6 +875,21 @@ function Workbench({
           }}
           canEdit={canUpdateAppointment && !drawerAppointment.backendManaged}
           canVerify={canVerifyIdentity && !drawerAppointment.backendManaged}
+          verification={
+            drawerAppointment.backendManaged
+              ? {
+                  csrfToken,
+                  currentUserId: user.id,
+                  canPrimary: canPrimaryVerify,
+                  canSecondary: canVerifyIdentity,
+                  onChanged: (message) => {
+                    // 확인 상태가 바뀌면 달력·확인 업무 목록도 새 상태로 다시 받는다.
+                    setScheduleRevision((current) => current + 1);
+                    if (message) notify(message);
+                  },
+                }
+              : undefined
+          }
           backendActions={
             drawerAppointment.backendManaged
               ? {

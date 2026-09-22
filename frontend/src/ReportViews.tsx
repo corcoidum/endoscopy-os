@@ -1,9 +1,4 @@
-import {
-  formatAgeSex,
-  procedureLabel,
-  type Appointment,
-} from "./data";
-import { StateLabel } from "./uiPrimitives";
+import type { Appointment } from "./data";
 import {
   appointmentsForStatisticsPeriod,
   statisticsPeriodLabel,
@@ -11,68 +6,6 @@ import {
 import { Icon } from "./icons";
 import { ScheduleOverridePanel } from "./ScheduleOverridePanel";
 import type { StatisticsPeriod } from "./viewTypes";
-
-export function ConfirmationView({
-  appointments,
-  onSelect,
-}: {
-  appointments: Appointment[];
-  onSelect: (id: string) => void;
-}) {
-  const queue = appointments.filter(
-    (appointment) =>
-      appointment.d1 === "대기" ||
-      appointment.medication === "대기" ||
-      appointment.verification === "대기",
-  );
-
-  return (
-    <section className="view-surface">
-      <div className="view-title">
-        <div>
-          <span className="eyebrow">D-1 · 약제 · 이중확인</span>
-          <h1>확인 업무 Queue</h1>
-          <p>미완료 항목과 재연락 예정자를 한 Queue에서 처리합니다.</p>
-        </div>
-      </div>
-      <div className="table-card">
-        <div className="data-table data-table--confirmation">
-          <div className="data-table__head">
-            <span>일시</span>
-            <span>환자</span>
-            <span>나이 · 성별</span>
-            <span>검사</span>
-            <span>D-1</span>
-            <span>약제</span>
-            <span>이중확인</span>
-            <span>작업</span>
-          </div>
-          {queue.map((appointment) => (
-            <button
-              className="data-table__row"
-              key={appointment.id}
-              onClick={() => onSelect(appointment.id)}
-            >
-              <span>
-                {appointment.date.slice(5)} {appointment.start}
-              </span>
-              <span>
-                <strong>{appointment.name}</strong>
-                <small>{appointment.chartNumber}</small>
-              </span>
-              <span>{formatAgeSex(appointment)}</span>
-              <span>{procedureLabel(appointment)}</span>
-              <StateLabel state={appointment.d1} />
-              <StateLabel state={appointment.medication} />
-              <StateLabel state={appointment.verification} />
-              <span className="row-action">확인 열기</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
 
 export function StatisticsView({
   appointments,

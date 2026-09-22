@@ -79,6 +79,7 @@ const backendAppointment: AppointmentResponse = {
       { procedure_code: "UPPER", sedation_mode: "SEDATED" },
       { procedure_code: "COLON", sedation_mode: "NON_SEDATED" },
     ],
+    verification_state: "VERIFIED",
     row_version: 3,
 };
 
@@ -87,6 +88,9 @@ test("Backend 예약은 주간 화면 모델로 변환하되 정적 상세 경�
 
   assert.equal(appointment.start, "09:00");
   assert.equal(appointment.rowVersion, 3);
+  assert.equal(appointment.verificationState, "VERIFIED");
+  // 이중확인만 실제 값이고, 아직 연결하지 않은 D-1·약제는 기본값 그대로다.
+  assert.equal(appointment.verification, "완료");
   assert.equal(appointment.procedure, "위·대장");
   assert.equal(appointment.procedureSet, "세트90");
   assert.equal(appointment.backendManaged, true);

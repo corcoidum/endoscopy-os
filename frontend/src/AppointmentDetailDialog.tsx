@@ -11,6 +11,16 @@ import { AppointmentOperationsEditor } from "./AppointmentOperationsEditor";
 import { AppointmentHistoryPanel } from "./AppointmentHistoryPanel";
 import { appointmentHasStarted } from "./appointmentPresentation";
 import type { AppointmentReasonAction } from "./AppointmentReasonDialog";
+import { AppointmentVerificationPanel } from "./AppointmentVerificationPanel";
+
+/** Backend 예약의 인적사항 1·2차 확인에 필요한 Session·권한. */
+export type VerificationAccess = {
+  csrfToken: string | null;
+  currentUserId: string;
+  canPrimary: boolean;
+  canSecondary: boolean;
+  onChanged: (message: string) => void;
+};
 
 /** Backend에 저장된 예약에서만 쓰는 상태 변경 권한과 동작. */
 export type BackendAppointmentActions = {
@@ -31,6 +41,7 @@ export function AppointmentDetailDialog({
   canEdit,
   canVerify,
   backendActions,
+  verification,
 }: {
   appointment: Appointment;
   onClose: () => void;
@@ -41,6 +52,7 @@ export function AppointmentDetailDialog({
   canEdit: boolean;
   canVerify: boolean;
   backendActions?: BackendAppointmentActions;
+  verification?: VerificationAccess;
 }) {
   const [tab, setTab] = useState("업무 요약");
   const [correctingVerification, setCorrectingVerification] = useState(false);
@@ -140,6 +152,24 @@ export function AppointmentDetailDialog({
         <div className="appointment-detail__content">
           {tab === "업무 요약" && (
             <div className="appointment-summary">
+              {appointment.backendManaged && verification ? (
+                <>
+                  <AppointmentVerificationPanel
+                    appointmentId={appointment.id}
+                    revision={appointment.rowVersion}
+                    csrfToken={verification.csrfToken}
+                    currentUserId={verification.currentUserId}
+                    canPrimary={verification.canPrimary}
+                    canSecondary={verification.canSecondary}
+                    onChanged={verification.onChanged}
+                  />
+                  <p className="unconnected-note">
+                    <Icon name="info" />
+                    D-1 연락·약제 확인·예약금은 아직 실제 기록과 연결하지 않아 표시하지 않습니다.
+                  </p>
+                </>
+              ) : (
+              <>
               <div
                 className={`appointment-attention ${pendingItems.length === 0 ? "is-clear" : ""}`}
               >
@@ -169,6 +199,8 @@ export function AppointmentDetailDialog({
                   </div>
                 ))}
               </div>
+              </>
+              )}
 
               <div className="appointment-operation-grid">
                 <section>
@@ -221,6 +253,12 @@ export function AppointmentDetailDialog({
             <section className="appointment-detail-section">
               <span className="eyebrow">준비·약제</span>
               <h3>검사 전 준비사항</h3>
+              {appointment.backendManaged && (
+                <p className="unconnected-note">
+                  <Icon name="info" />
+                  수면 여부 외의 준비·약제·D-1 값은 아직 실제 기록과 연결하지 않은 Prototype 기본값입니다.
+                </p>
+              )}
               <dl className="appointment-detail-list appointment-detail-list--wide">
                 <div><dt>장정결제</dt><dd>{appointment.bowelPreparation ?? "해당 없음"}</dd></div>
                 <div><dt>위 수면</dt><dd>{appointment.upperSedation === undefined ? "해당 없음" : appointment.upperSedation ? "수면" : "비수면"}</dd></div>
@@ -239,6 +277,12 @@ export function AppointmentDetailDialog({
             <section className="appointment-detail-section">
               <span className="eyebrow">결제</span>
               <h3>수납 정보</h3>
+              {appointment.backendManaged && (
+                <p className="unconnected-note">
+                  <Icon name="info" />
+                  예약금·수납 값은 아직 실제 기록과 연결하지 않은 Prototype 기본값입니다.
+                </p>
+              )}
               <dl className="appointment-detail-list appointment-detail-list--wide">
                 <div><dt>예약금</dt><dd><StateLabel state={appointment.deposit} /></dd></div>
                 <div><dt>수납 상태</dt><dd>{appointment.deposit === "완료" ? "납부 완료" : appointment.depositUnpaidConfirmed ? "미납 확인" : "확인 대기"}</dd></div>

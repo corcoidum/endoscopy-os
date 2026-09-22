@@ -4,6 +4,10 @@ import {
   E2E_ADMIN_PASSWORD,
   E2E_API_URL,
   E2E_FRONTEND_ORIGIN,
+  E2E_STAFF_ID,
+  E2E_STAFF_INITIAL_PASSWORD,
+  E2E_STAFF_NAME,
+  E2E_STAFF_PASSWORD,
   type E2ESeed,
 } from "./env";
 
@@ -97,8 +101,41 @@ async function adminSession(): Promise<ApiSession> {
   return ready;
 }
 
+/** 2차 확인용 합성 내시경 담당 계정을 만들고 최초 비밀번호 변경까지 마친다. */
+async function ensureStaff(admin: ApiSession): Promise<void> {
+  const probe = new ApiSession();
+  const ready = await probe.request("POST", "/api/auth/login", {
+    login_id: E2E_STAFF_ID,
+    password: E2E_STAFF_PASSWORD,
+  });
+  if (ready.status === 200) return;
+
+  const roles = (await admin.expect("GET", "/api/users/roles", 200)) as unknown as Array<{
+    id: string;
+    code: string;
+  }>;
+  const endoscopy = roles.find((role) => role.code === "ENDOSCOPY_STAFF");
+  if (!endoscopy) throw new Error("ENDOSCOPY_STAFF 역할이 없습니다. seed-identity를 확인해 주세요.");
+  await admin.expect("POST", "/api/users", 201, {
+    login_id: E2E_STAFF_ID,
+    password: E2E_STAFF_INITIAL_PASSWORD,
+    display_name: E2E_STAFF_NAME,
+    role_ids: [endoscopy.id],
+  });
+  const staff = new ApiSession();
+  await staff.expect("POST", "/api/auth/login", 200, {
+    login_id: E2E_STAFF_ID,
+    password: E2E_STAFF_INITIAL_PASSWORD,
+  });
+  await staff.expect("POST", "/api/auth/change-password", 200, {
+    current_password: E2E_STAFF_INITIAL_PASSWORD,
+    new_password: E2E_STAFF_PASSWORD,
+  });
+}
+
 export default async function globalSetup() {
   const session = await adminSession();
+  await ensureStaff(session);
   const stamp = Date.now().toString(36).toUpperCase();
   const chartNumber = `SYN-E2E-${stamp}`;
   const patientName = "합성이투이";
@@ -117,11 +154,19 @@ export default async function globalSetup() {
     sex: "MALE",
   });
   const otherPatientId = (otherPatient.patient as { id: string }).id;
+  const verificationChartNumber = `${chartNumber}-C`;
+  const verificationPatient = await session.expect("POST", "/api/patients", 201, {
+    chart_number: verificationChartNumber,
+    name: "합성이투씨",
+    birth_date: "1985-06-15",
+    sex: "FEMALE",
+  });
+  const verificationPatientId = (verificationPatient.patient as { id: string }).id;
 
   // 월·화·목·금 오전(09:00~12:00) 중 오늘 이후 두 시각 이상 비어 있는 날을 차례로 고른다.
   const today = seoulToday();
   const openDates: Array<{ serviceDate: string; starts: string[] }> = [];
-  for (let offset = 1; offset <= 21 && openDates.length < 2; offset += 1) {
+  for (let offset = 1; offset <= 21 && openDates.length < 3; offset += 1) {
     const serviceDate = addDays(today, offset);
     const weekday = new Date(`${serviceDate}T00:00:00Z`).getUTCDay();
     if (![1, 2, 4, 5].includes(weekday)) continue;
@@ -137,7 +182,7 @@ export default async function globalSetup() {
       openDates.push({ serviceDate, starts });
     }
   }
-  if (openDates.length < 2) {
+  if (openDates.length < 3) {
     throw new Error("E2E 합성 예약을 넣을 빈 날짜를 찾지 못했습니다.");
   }
 
@@ -151,9 +196,14 @@ export default async function globalSetup() {
       procedures: [{ procedure_code: "UPPER", sedation_mode: "NON_SEDATED" }],
     });
 
-  const [changeDay, overrideDay] = openDates;
+  const [changeDay, overrideDay, verificationDay] = openDates;
+  // 확인 업무 화면은 오늘부터 14일만 보여 준다.
+  if (verificationDay.serviceDate > addDays(today, 13)) {
+    throw new Error("확인 시험 예약이 확인 업무 조회 기간(14일) 밖에 잡혔습니다.");
+  }
   const booked = await book(patientId, changeDay.serviceDate, changeDay.starts[0]);
   await book(otherPatientId, overrideDay.serviceDate, overrideDay.starts[0]);
+  await book(verificationPatientId, verificationDay.serviceDate, verificationDay.starts[0]);
 
   const seed: E2ESeed = {
     appointmentId: String(booked.id),
@@ -164,6 +214,10 @@ export default async function globalSetup() {
     alternativeStartTime: changeDay.starts[changeDay.starts.length - 1],
     overrideDate: overrideDay.serviceDate,
     overrideStartTime: overrideDay.starts[0],
+    verificationChartNumber,
+    verificationDate: verificationDay.serviceDate,
+    verificationStartTime: verificationDay.starts[0],
+    verificationAlternativeStartTime: verificationDay.starts[verificationDay.starts.length - 1],
     runStamp: stamp,
   };
   process.env.E2E_SEED = JSON.stringify(seed);

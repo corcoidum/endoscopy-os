@@ -1,4 +1,6 @@
 export type Sex = "남" | "여";
+import type { VerificationState } from "./verificationsApi";
+
 export type CareCategory = "검진" | "일반";
 export type ProcedureKind = "위" | "대장" | "위·대장";
 export type ProcedureSet = "세트60" | "세트90";
@@ -72,6 +74,8 @@ export interface Appointment {
   rowVersion?: number;
   /** 14:00 오후 예외가 아직 다른 직원의 확인을 기다리는지. */
   exceptionPending?: boolean;
+  /** Backend 예약의 인적사항 1·2차 확인 상태. */
+  verificationState?: VerificationState;
 }
 
 export interface PathologyCase {

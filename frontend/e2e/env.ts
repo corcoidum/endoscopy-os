@@ -9,6 +9,12 @@ export const E2E_ADMIN_INITIAL_PASSWORD =
 export const E2E_ADMIN_PASSWORD =
   process.env.E2E_ADMIN_PASSWORD ?? "Synthetic-E2E-Changed-42!";
 
+// 2차 확인을 맡는 두 번째 합성 직원(내시경 담당). globalSetup이 API로 만든다.
+export const E2E_STAFF_ID = process.env.E2E_STAFF_ID ?? "e2e.endo";
+export const E2E_STAFF_NAME = "E2E 합성 내시경";
+export const E2E_STAFF_INITIAL_PASSWORD = "Synthetic-E2E-Staff-Initial-42!";
+export const E2E_STAFF_PASSWORD = "Synthetic-E2E-Staff-Changed-42!";
+
 /** globalSetup이 만든 합성 예약. 환경변수로 Test Worker에 전달한다. */
 export type E2ESeed = {
   appointmentId: string;
@@ -20,6 +26,11 @@ export type E2ESeed = {
   /** 일정 예외 시험용 예약. 변경·취소 시험과 겹치지 않는 다른 날짜에 둔다. */
   overrideDate: string;
   overrideStartTime: string;
+  /** 1·2차 확인 시험용 예약. 다른 시험과 섞이지 않도록 별도 합성 환자로 만든다. */
+  verificationChartNumber: string;
+  verificationDate: string;
+  verificationStartTime: string;
+  verificationAlternativeStartTime: string;
   runStamp: string;
 };
 

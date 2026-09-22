@@ -2,10 +2,11 @@
 
 원내 내부망에서 사용하는 내시경 예약·검사·조직검사 Follow-up 운영
 시스템입니다. EMR 또는 PACS를 대체하지 않으며, 현재 구현 범위는
-**Phase 4 · Sprint 3B 2단계(Frontend 실제 API 연결)**까지입니다. 환자 기능과
-예약 조회·등록·변경·취소·No-show·이력, 14:00 오후 예외 확인, 날짜별 일정 예외
-관리가 Frontend까지 실제 API에 연결되어 있습니다. 확인 업무·준비·결제·통계·
-조직검체는 이후 Sprint 범위라 아직 합성 Fixture로 동작합니다.
+**Phase 4 · Sprint 4A(인적사항 1·2차 확인)**까지입니다. 환자 기능과 예약 조회·
+등록·변경·취소·No-show·이력, 14:00 오후 예외 확인, 날짜별 일정 예외 관리, 예약별
+인적사항 1·2차 확인·정정·자동 무효화가 Frontend까지 실제 API에 연결되어 있습니다.
+준비·약제·결제·PACS 확인·통계·조직검체는 이후 Sprint 범위라 아직 합성 Fixture나
+저장하지 않는 Prototype으로 동작합니다.
 
 > 실제 환자정보를 입력하지 마세요. Patient 기능은 구현했지만 개발 PC의 Disk
 > 암호화와 실제 원내 PC 운영 Gate가 끝나지 않았습니다. Test·Seed는 합성
@@ -68,7 +69,7 @@
 - 예약별 생성·변경·취소·No-show·확인 History API
 - 실제 PostgreSQL에서 Migration, 동시 예약, UTC Session Timezone 통합 Test
 
-### Sprint 3B 2단계 Frontend 연결
+### Sprint 3B 2단계 Frontend 연결 완료
 
 실제 API에 연결된 화면:
 
@@ -82,21 +83,45 @@
 - 14:00 오후 예외 확인(등록자가 아닌 직원)
 - 관리자 화면의 날짜별 일정 예외 등록·승인·취소와 영향받는 예약 안내
 
-아직 합성 Fixture로 동작하는 화면:
+Sprint 3B는 2026-09-22 종료 검증(`verify.ps1`, `e2e.ps1`, 일회용 PostgreSQL 전용
+Test)을 통과해 종료했습니다.
 
-- 오늘 화면의 우선 처리 Queue, 확인 업무, 통계, 조직검체
-- 예약 상세의 준비·약제·결제 편집기(저장되지 않으며 실제 예약에서는 막혀 있음)
+### Sprint 4A 인적사항 1·2차 확인 완료
+
+- 예약별 1차·2차 확인과 확인 당시 Snapshot(이름·차트번호·생년월일·성별, 검사일·
+  시각·검사·수면·세트·일반/검진, 계산된 나이·계산방식·기준일, 확인자·시각·방법·
+  메모)을 PostgreSQL에 저장합니다. 원본이 바뀌어도 과거 Snapshot은 바뀌지 않습니다.
+- 2차 확인은 유효한 1차 뒤, 1차 확인자와 다른 활성 계정만 할 수 있습니다. 관리자도
+  같은 계정으로는 2차 확인할 수 없습니다.
+- 2차 확인 정정은 사유가 필수이며, 원래 기록을 남기고 1차는 유지한 채 2차만 다시
+  받습니다.
+- 환자 이름·차트번호·생년월일·성별이나 예약 검사일·시각·검사 종류·수면·세트·
+  일반/검진이 바뀌면 같은 Transaction에서 1·2차 확인을 무효화합니다. 연락처·
+  특이사항·메모 변경은 확인을 유지합니다. 취소·No-show 예약은 새로 확인하지 않습니다.
+- 예약 상세의 확인 Panel, `확인 업무` 화면의 이중확인 대기 목록(오늘부터 14일),
+  주간 보드 왼쪽 업무 Queue가 실제 확인 상태를 보여 줍니다.
+- 권한: `verification.primary`(관리자·원무)를 새로 만들고 기존 Database 역할에도
+  Migration으로 부여합니다. 2차는 기존 `verification.secondary`(관리자·내시경 담당)를
+  씁니다.
+
+아직 합성 Fixture나 저장하지 않는 Prototype으로 동작하는 화면:
+
+- 오늘 화면(Dashboard), 통계, 조직검체
+- 예약 상세의 준비·약제·결제 편집기(실제 예약에서는 막혀 있고 미연결 안내가 붙음)
+- PACS 수기확인은 아직 없어 실제 예약 화면에서 숨깁니다.
 
 개발 품질 기준:
 
 - `scripts/verify.ps1`이 Backend `ruff`·`mypy`·`pytest`와 Frontend `oxlint`·
-  `tsc`(src·tests)·Test·Build를 함께 검사합니다.
-- PostgreSQL 통합 Test는 Migration을 적용한 Schema와 ORM metadata의 차이도
-  검사합니다.
+  `tsc`(src·tests·e2e)·Test·Build를 함께 검사합니다.
+- PostgreSQL 통합 Test는 Migration을 적용한 Schema와 ORM metadata의 차이, 동시
+  예약, 단계별 유효 확인 유일성, 확인과 핵심정보 변경의 경합도 검사합니다.
 - `scripts/e2e.ps1`이 일회용 PostgreSQL과 실제 Backend·Browser로 예약 변경·이력·
-  취소와 일정 예외 승인·취소 흐름을 확인합니다.
+  취소, 일정 예외 승인·취소, 두 직원의 1·2차 확인·정정·재확인·무효화 흐름을
+  확인합니다.
 
-상세 결과는 [Sprint 3B 2단계 보고서](./docs/11-sprint-3b-stage2-frontend-api-report.md)를
+상세 결과는 [Sprint 3B 2단계 보고서](./docs/11-sprint-3b-stage2-frontend-api-report.md)와
+[Sprint 3B 종료 검증·Sprint 4A 보고서](./docs/12-sprint-4a-identity-verification-report.md)를
 참고하세요.
 
 ## 전체 로드맵
@@ -109,8 +134,8 @@
 | Sprint 1 | 인증·Session·CSRF·RBAC, PostgreSQL·Alembic, Caddy 내부 HTTPS, Docker Compose | 완료 | [05](./docs/05-sprint-1-implementation-report.md) |
 | Sprint 2 | Patient 등록·검색·정정 History, 차트번호 중복, 나이 계산, 연락처 암호화 | 완료 | [06](./docs/06-sprint-2-entry-gate.md), [07](./docs/07-sprint-2-implementation-report.md) |
 | Sprint 3A | 예약 Backend Core(점유시간·운영시간·Capacity·충돌 차단·API), 세트60/90 | 완료 | [08](./docs/08-sprint-3a-implementation-report.md) |
-| **Sprint 3B** | 날짜별 Override, 14:00 오후 예외 승인, 예약 변경·취소·No-show·Revision, 일정·예약 Form 실제 API 전환, PostgreSQL 동시성 통합 Test | **진행 중** (1단계 Backend 완료, 2단계 Frontend 연결 완료 · 종료 검토) | [10](./docs/10-sprint-3b-stage1-backend-report.md), [11](./docs/11-sprint-3b-stage2-frontend-api-report.md) |
-| Sprint 4 | 1차·2차 이중확인, PACS 수기확인, 장정결·약제·추가검사 | 예정 | — |
+| Sprint 3B | 날짜별 Override, 14:00 오후 예외 승인, 예약 변경·취소·No-show·Revision, 일정·예약 Form 실제 API 전환, PostgreSQL 동시성 통합 Test | 완료 (2026-09-22 종료 검증) | [10](./docs/10-sprint-3b-stage1-backend-report.md), [11](./docs/11-sprint-3b-stage2-frontend-api-report.md), [12](./docs/12-sprint-4a-identity-verification-report.md) |
+| **Sprint 4** | 1차·2차 이중확인, PACS 수기확인, 장정결·약제·추가검사 | **진행 중** (4A 1·2차 이중확인 완료 · PACS 수기확인·장정결·약제·추가검사 예정) | [12](./docs/12-sprint-4a-identity-verification-report.md) |
 | Sprint 5 | 예약금(정책 Version·거래원장), 취소, No-show, D-1 연락 | 예정 | — |
 | Sprint 6 | 실제 검사 완료, Biopsy·CLO 검사대장, 병리 Follow-up·Overdue, Risk Dashboard, 통계 | 예정 | [09 병리 PDF Import 설계안](./docs/09-pathology-pdf-import-security-design.md) |
 | Sprint 7 | 영구 Audit Log, Backup·Restore·월간 Restore Test, Windows 운영 Script | 예정 | — |
@@ -167,9 +192,10 @@ npm run build
 Pop-Location
 ```
 
-실제 PostgreSQL·Backend·Browser로 예약 변경·이력·취소 흐름을 확인하는 Smoke Test는
-Docker가 필요해 `verify.ps1`과 따로 실행합니다. 매번 일회용 Database Container를
-만들고 끝나면 지우며, 합성 계정과 환자만 씁니다. Browser는 설치된 Google Chrome을
+실제 PostgreSQL·Backend·Browser로 예약 변경·이력·취소, 일정 예외, 두 직원의
+인적사항 1·2차 확인 흐름을 확인하는 Smoke Test는 Docker가 필요해 `verify.ps1`과
+따로 실행합니다. 매번 일회용 Database Container를 만들고 끝나면 지우며, 합성
+계정(관리자·내시경 담당)과 환자만 씁니다. Browser는 설치된 Google Chrome을
 씁니다(`E2E_BROWSER_CHANNEL`로 변경 가능).
 
 ```powershell
@@ -464,7 +490,7 @@ Local Python으로 Alembic을 직접 실행하려면 `DATABASE_URL` 또는
 | `GET` | `/api/patients/{id}/age` | 기준일·방식별 나이 계산 |
 | `PATCH` | `/api/patients/{id}/activation` | 비활성화·재활성화 |
 | `GET` | `/api/appointments/availability` | 날짜별 규칙을 반영한 오전·오후 예외 가능 Slot 조회 |
-| `GET` | `/api/appointments` | 기간별 실제 예약 조회(월간 6주 Grid까지 최대 42일) |
+| `GET` | `/api/appointments` | 기간별 실제 예약 조회(이중확인 상태 포함, 월간 6주 Grid까지 최대 42일) |
 | `POST` | `/api/appointments` | 오전·14:00 오후 예외·당일 연장 슬롯 예약 생성(지난 날짜 차단) |
 | `GET` | `/api/appointments/{id}` | 예약 상세 조회 |
 | `GET` | `/api/appointments/{id}/history` | 예약 생성·변경·취소·No-show·확인 이력 |
@@ -472,6 +498,10 @@ Local Python으로 Alembic을 직접 실행하려면 `DATABASE_URL` 또는
 | `POST` | `/api/appointments/{id}/cancel` | 사유를 남기고 예약 취소 |
 | `POST` | `/api/appointments/{id}/no-show` | 시작시각 이후 No-show 기록 |
 | `POST` | `/api/appointments/{id}/confirm-exception` | 등록자가 아닌 직원의 오후 예외 확인 |
+| `GET` | `/api/appointments/{id}/verifications` | 인적사항 확인 상태, 확인할 핵심정보와 지문, 유효한 1·2차와 전체 이력 |
+| `POST` | `/api/appointments/{id}/verifications/primary` | 화면에 보인 핵심정보로 1차 확인(`verification.primary`) |
+| `POST` | `/api/appointments/{id}/verifications/secondary` | 1차 확인자와 다른 직원의 2차 확인(`verification.secondary`) |
+| `POST` | `/api/appointments/{id}/verifications/secondary/correct` | 사유를 남기고 완료된 2차 확인을 정정 |
 | `GET` | `/api/schedule/day-policies` | 날짜별 휴진·운영시간·수용량·오후 예외 허용 조회 |
 | `GET` | `/api/schedule/overrides` | 기간별 일정 예외 Rule 조회 |
 | `POST` | `/api/schedule/overrides` | 일정 예외 Rule 등록(승인 대기) |
@@ -508,10 +538,13 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
 - 개발 PC의 Disk 암호화가 꺼져 있으므로 실제 환자정보를 입력하면 안 됩니다.
 - 로그인 실패는 계정 단위 잠금과 Client IP별 제한을 함께 적용합니다. IP별
   실패 기록은 Backend Process Memory에만 있어 재시작 시 초기화됩니다.
-- 사용자·역할 변경의 영구 Audit Log는 Sprint 7 범위입니다.
-- 예약을 변경해도 1·2차 확인·PACS 확인 무효화는 아직 하지 않습니다(Sprint 4 범위).
-- PostgreSQL 통합 Test는 `TEST_POSTGRES_URL`을 지정했을 때만 실행됩니다.
-  실행 방법은 [Sprint 3B 1단계 보고서](./docs/10-sprint-3b-stage1-backend-report.md)를
+- 사용자·역할 변경의 영구 Audit Log는 Sprint 7 범위입니다. 인적사항 확인·정정·
+  무효화 기록은 업무 이력이며 영구 Audit Log가 아닙니다.
+- PACS 수기확인과 준비 Gate(유효한 이중확인 없이 준비 완료를 막는 규칙)는 아직
+  없습니다(Sprint 4 후속).
+- PostgreSQL 통합 Test는 `TEST_POSTGRES_URL`을 지정했을 때만 실행됩니다. 대상
+  Schema를 초기화하므로 일회용 Test Database에만 연결하세요. 실행 방법은
+  [Sprint 3B 1단계 보고서](./docs/10-sprint-3b-stage1-backend-report.md)를
   참고하세요.
 - Docker Desktop 자동기동, 내부 DNS, Windows Firewall, Caddy Root 인증서
   배포는 실제 서버 PC에서 승인·시험해야 합니다.
@@ -524,4 +557,5 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
 - [Sprint 3A 구현 보고서](./docs/08-sprint-3a-implementation-report.md)
 - [Sprint 3B 1단계 Backend 보고서](./docs/10-sprint-3b-stage1-backend-report.md)
 - [Sprint 3B 2단계 Frontend 연결 보고서](./docs/11-sprint-3b-stage2-frontend-api-report.md)
+- [Sprint 3B 종료 검증·Sprint 4A 인적사항 1·2차 확인 보고서](./docs/12-sprint-4a-identity-verification-report.md)
 - [병리 PDF Import 보안 설계안 (Sprint 6 참고)](./docs/09-pathology-pdf-import-security-design.md)

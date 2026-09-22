@@ -45,13 +45,17 @@ pytestmark = pytest.mark.skipif(
 
 def _alembic(*arguments: str) -> None:
     environment = os.environ.copy()
-    environment.update({"APP_ENV": "test", "DATABASE_URL": str(POSTGRES_URL)})
+    environment.update(
+        {"APP_ENV": "test", "DATABASE_URL": str(POSTGRES_URL), "PYTHONIOENCODING": "utf-8"}
+    )
     completed = subprocess.run(
         [sys.executable, "-m", "alembic", *arguments],
         cwd=PROJECT_ROOT,
         env=environment,
         capture_output=True,
-        text=True,
+        # Windows 한국어 로캘(cp949)에서도 한국어 Migration 설명을 깨지 않고 읽는다.
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=120,
     )

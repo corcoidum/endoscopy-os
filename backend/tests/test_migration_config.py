@@ -13,6 +13,7 @@ def test_alembic_accepts_url_encoded_database_password() -> None:
     environment.update(
         {
             "APP_ENV": "test",
+            "PYTHONIOENCODING": "utf-8",
             "DATABASE_URL": (
                 "postgresql+psycopg://migration:"
                 "slash%2Fpercent%25@localhost/clinic_endoscopy"
@@ -32,7 +33,9 @@ def test_alembic_accepts_url_encoded_database_password() -> None:
         cwd=PROJECT_ROOT,
         env=environment,
         capture_output=True,
-        text=True,
+        # Windows 한국어 로캘(cp949)에서도 한국어 Migration 설명을 깨지 않고 읽는다.
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=30,
     )

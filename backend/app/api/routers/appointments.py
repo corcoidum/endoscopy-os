@@ -159,6 +159,7 @@ def get_appointment(
             selectinload(Appointment.procedures),
             selectinload(Appointment.resource),
             selectinload(Appointment.patient),
+            selectinload(Appointment.verifications),
         ),
     )
     if appointment is None:

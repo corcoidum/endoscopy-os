@@ -29,6 +29,7 @@ PERMISSIONS: dict[str, str] = {
     "patient.read": "환자 조회",
     "patient.create": "환자 등록",
     "patient.update": "환자정보 변경",
+    "verification.primary": "인적사항 1차 확인",
     "verification.secondary": "인적사항 2차 확인",
     "verification.pacs": "PACS 입력 확인",
     "procedure.write": "검사 진행과 완료 기록",
@@ -55,6 +56,7 @@ ROLE_DEFINITIONS: dict[str, tuple[str, set[str]]] = {
             "patient.read",
             "patient.create",
             "patient.update",
+            "verification.primary",
         },
     ),
     "ENDOSCOPY_STAFF": (

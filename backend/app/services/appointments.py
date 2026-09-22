@@ -26,6 +26,12 @@ from app.schemas.appointment import (
     ProcedureCode,
     ProcedureSet,
 )
+from app.services.verification_core import (
+    APPOINTMENT_CORE_FIELDS,
+    changed_core_labels,
+    core_snapshot,
+    invalidate_appointment_verifications,
+)
 
 DEFAULT_RESOURCE_CODE = "ENDOSCOPY_MAIN"
 BASE_POLICY_VERSION = "BASE-2026-07-30"
@@ -846,6 +852,7 @@ def _get_appointment_for_update(db: Session, appointment_id: UUID) -> Appointmen
             selectinload(Appointment.procedures),
             selectinload(Appointment.resource),
             selectinload(Appointment.patient),
+            selectinload(Appointment.verifications),
         )
     )
     if appointment is None:
@@ -979,6 +986,7 @@ def change_appointment(
         )
 
     before = appointment_snapshot(appointment)
+    before_core = core_snapshot(appointment)
     for locked_date in sorted({appointment.service_date, new_date}):
         lock_schedule_date(db, locked_date)
     _, policy = _validate_candidate(
@@ -1016,6 +1024,18 @@ def change_appointment(
         actor_user_id=actor_user_id,
     )
     db.flush()
+    changed_core = changed_core_labels(
+        before_core, core_snapshot(appointment), APPOINTMENT_CORE_FIELDS
+    )
+    if changed_core:
+        # 확인한 정보와 달라졌으므로 1·2차 확인을 지우지 않고 무효로 돌린다.
+        invalidate_appointment_verifications(
+            db,
+            appointment.id,
+            reason=f"예약 핵심정보 변경({', '.join(changed_core)}): {reason.strip()}",
+            actor_user_id=actor_user_id,
+            now=now,
+        )
     return appointment
 
 
@@ -1181,6 +1201,8 @@ def list_appointments(
                 selectinload(Appointment.procedures),
                 selectinload(Appointment.resource),
                 selectinload(Appointment.patient),
+                selectinload(Appointment.verifications),
+            selectinload(Appointment.verifications),
             )
             .order_by(
                 Appointment.service_date,

@@ -10,6 +10,7 @@ from app.schemas.appointment import (
 from app.schemas.patient import AgeMethod
 from app.services.appointments import exception_status
 from app.services.patients import calculate_age
+from app.services.verification_core import verification_state
 
 
 def present_appointment(appointment: Appointment) -> AppointmentResponse:
@@ -68,6 +69,7 @@ def present_appointment(appointment: Appointment) -> AppointmentResponse:
             )
             for item in appointment.procedures
         ],
+        verification_state=verification_state(appointment.verifications),
         row_version=appointment.row_version,
         created_at=appointment.created_at,
         updated_at=appointment.updated_at,

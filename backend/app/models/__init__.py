@@ -19,6 +19,7 @@ from app.models.iam import (
     UserSession,
 )
 from app.models.patient import Patient, PatientHistoryEvent
+from app.models.verification import PatientVerification
 
 __all__ = [
     "IAM_SCHEMA",
@@ -27,6 +28,7 @@ __all__ = [
     "AppointmentProcedure",
     "Patient",
     "PatientHistoryEvent",
+    "PatientVerification",
     "Permission",
     "Role",
     "RolePermission",

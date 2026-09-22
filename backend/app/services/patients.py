@@ -14,6 +14,10 @@ from app.core.config import Settings
 from app.core.exceptions import ApiError
 from app.models import Patient, PatientHistoryEvent, User
 from app.schemas.patient import AgeMethod, SexCode
+from app.services.verification_core import (
+    PATIENT_CORE_FIELDS,
+    invalidate_patient_verifications,
+)
 
 PHONE_PATTERN = re.compile(r"^[0-9+() -]+$")
 PATIENT_EDITABLE_FIELDS = {
@@ -572,6 +576,17 @@ def update_patient(
         reason=reason,
         actor_user_id=actor_user_id,
     )
+    core_changed = [
+        PATIENT_CORE_FIELDS[field] for field in changed_fields if field in PATIENT_CORE_FIELDS
+    ]
+    if core_changed:
+        # 연락처·특이사항만 바뀐 경우에는 기존 확인을 유지한다.
+        invalidate_patient_verifications(
+            db,
+            patient.id,
+            reason=f"환자 핵심정보 변경({', '.join(core_changed)}): {reason.strip()}",
+            actor_user_id=actor_user_id,
+        )
     duplicates = find_demographic_duplicates(
         db,
         name=patient.name,

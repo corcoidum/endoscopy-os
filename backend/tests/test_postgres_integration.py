@@ -108,7 +108,7 @@ def postgres_app(postgres_session_factory: sessionmaker[Session]) -> FastAPI:
         db.execute(
             text(
                 "TRUNCATE appointment_history_events, appointment_procedures, "
-                "appointments, schedule_additional_slots, "
+                "patient_verifications, appointments, schedule_additional_slots, "
                 "schedule_date_overrides, patient_history_events, "
                 "patients CASCADE"
             )
@@ -279,3 +279,165 @@ def test_times_stay_in_seoul_when_database_session_uses_utc(
         )
         assert changed.status_code == 200, changed.text
         assert changed.json()["start_time"] == "10:00:00"
+
+
+def _verification_status(client: TestClient, appointment_id: str) -> dict[str, object]:
+    response = client.get(f"/api/appointments/{appointment_id}/verifications")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _race(first, second) -> tuple[int, int]:
+    """두 요청을 Barrier로 동시에 출발시키고 각 응답 상태를 돌려준다."""
+
+    barrier = threading.Barrier(2)
+    results: dict[str, int] = {}
+
+    def run(name: str, action) -> None:
+        barrier.wait()
+        results[name] = action().status_code
+
+    threads = [
+        threading.Thread(target=run, args=("first", first)),
+        threading.Thread(target=run, args=("second", second)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    return results["first"], results["second"]
+
+
+def _valid_verifications(
+    factory: sessionmaker[Session], appointment_id: str
+) -> list[tuple[str, str]]:
+    with factory() as db:
+        return [
+            (row.stage, row.snapshot_hash)
+            for row in db.execute(
+                text(
+                    "SELECT stage, snapshot_hash FROM patient_verifications "
+                    "WHERE appointment_id = :id AND is_valid"
+                ),
+                {"id": appointment_id},
+            )
+        ]
+
+
+def test_valid_verification_is_unique_per_stage_in_postgres(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    with postgres_session_factory() as db:
+        definition = db.execute(
+            text(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE indexname = 'uq_patient_verifications_valid_stage'"
+            )
+        ).scalar_one()
+    assert "UNIQUE" in definition
+    assert "WHERE is_valid" in definition
+
+
+def test_concurrent_duplicate_primary_keeps_one_valid_record(
+    postgres_app: FastAPI,
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    with (
+        TestClient(postgres_app, base_url="https://testserver", client=LOCAL_CLIENT) as first,
+        TestClient(postgres_app, base_url="https://testserver", client=LOCAL_CLIENT) as second,
+    ):
+        first_csrf, second_csrf = _login(first), _login(second)
+        patient_id = _create_patient(first, first_csrf)
+        booked = first.post(
+            "/api/appointments",
+            headers=_headers(first_csrf),
+            json=_booking(patient_id, "09:00", COLON),
+        )
+        appointment_id = booked.json()["id"]
+        fingerprint = _verification_status(first, appointment_id)["fingerprint"]
+        url = f"/api/appointments/{appointment_id}/verifications/primary"
+        body = {"expected_fingerprint": fingerprint, "method": "IN_PERSON"}
+
+        statuses = _race(
+            lambda: first.post(url, headers=_headers(first_csrf), json=body),
+            lambda: second.post(url, headers=_headers(second_csrf), json=body),
+        )
+
+    assert sorted(statuses) == [201, 409]
+    assert [stage for stage, _ in _valid_verifications(postgres_session_factory, appointment_id)] == [
+        "PRIMARY"
+    ]
+
+
+@pytest.mark.parametrize("change", ["appointment_time", "patient_name"])
+def test_verification_racing_a_core_change_never_keeps_a_stale_record(
+    postgres_app: FastAPI,
+    postgres_session_factory: sessionmaker[Session],
+    change: str,
+) -> None:
+    """확인과 핵심정보 변경이 동시에 와도, 현재 정보와 다른 유효 확인이 남지 않는다."""
+
+    with (
+        TestClient(postgres_app, base_url="https://testserver", client=LOCAL_CLIENT) as verifier,
+        TestClient(postgres_app, base_url="https://testserver", client=LOCAL_CLIENT) as editor,
+    ):
+        verifier_csrf, editor_csrf = _login(verifier), _login(editor)
+        patient_id = _create_patient(editor, editor_csrf)
+        booked = editor.post(
+            "/api/appointments",
+            headers=_headers(editor_csrf),
+            json=_booking(patient_id, "09:00", COLON),
+        )
+        appointment_id = booked.json()["id"]
+        fingerprint = _verification_status(verifier, appointment_id)["fingerprint"]
+
+        def verify():
+            return verifier.post(
+                f"/api/appointments/{appointment_id}/verifications/primary",
+                headers=_headers(verifier_csrf),
+                json={"expected_fingerprint": fingerprint, "method": "IN_PERSON"},
+            )
+
+        def edit():
+            if change == "appointment_time":
+                return editor.patch(
+                    f"/api/appointments/{appointment_id}",
+                    headers=_headers(editor_csrf),
+                    json={"row_version": 1, "reason": "동시성 시험", "start_time": "10:00"},
+                )
+            return editor.patch(
+                f"/api/patients/{patient_id}",
+                headers=_headers(editor_csrf),
+                json={"row_version": 1, "reason": "동시성 시험", "name": "합성동시정정"},
+            )
+
+        verify_status, edit_status = _race(verify, edit)
+        status = _verification_status(verifier, appointment_id)
+
+    assert edit_status == 200
+    # 확인이 먼저 끝났으면 변경이 그것을 무효화하고, 변경이 먼저면 확인이 거절된다.
+    assert (verify_status, status["state"]) in {
+        (201, "REVERIFY_REQUIRED"),
+        (409, "UNVERIFIED"),
+    }
+    for _, snapshot_hash in _valid_verifications(postgres_session_factory, appointment_id):
+        assert snapshot_hash == status["fingerprint"]
+
+
+def test_upgrade_grants_primary_permission_to_existing_roles(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """이미 Role이 Seed된 Database에도 0008 Migration이 1차 확인 권한을 부여한다."""
+
+    query = text(
+        "SELECT r.code FROM iam.role_permissions rp "
+        "JOIN iam.roles r ON r.id = rp.role_id "
+        "JOIN iam.permissions p ON p.id = rp.permission_id "
+        "WHERE p.code = 'verification.primary' ORDER BY r.code"
+    )
+    _alembic("downgrade", "20260918_0007")
+    with postgres_session_factory() as db:
+        assert db.execute(query).scalars().all() == []
+    _alembic("upgrade", "head")
+    with postgres_session_factory() as db:
+        assert db.execute(query).scalars().all() == ["ADMIN", "FRONT_DESK"]

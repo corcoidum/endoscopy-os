@@ -307,6 +307,27 @@ def test_same_user_cannot_complete_both_stages_even_as_admin(
     assert _valid_count(session_factory, appointment["id"]) == 1
 
 
+def test_deactivated_reviewer_cannot_complete_secondary(
+    staff: Staff, session_factory: sessionmaker[Session]
+) -> None:
+    patient = _patient(staff)
+    appointment = _book(staff, str(patient["id"]))
+    fingerprint = _status(staff.admin, appointment["id"])["fingerprint"]
+    assert _verify(staff.admin, staff.admin_csrf, appointment["id"], "primary", fingerprint).status_code == 201
+
+    # 로그인해 둔 2차 확인자가 비활성화되면 이미 열린 Session으로도 확인할 수 없다.
+    with session_factory() as db:
+        reviewer = db.get(User, staff.endo_id)
+        assert reviewer is not None
+        reviewer.is_active = False
+        db.commit()
+
+    rejected = _verify(staff.endo, staff.endo_csrf, appointment["id"], "secondary", fingerprint)
+    assert rejected.status_code == 401, rejected.text
+    assert _status(staff.admin, appointment["id"])["state"] == "PRIMARY_DONE"
+    assert _valid_count(session_factory, appointment["id"]) == 1
+
+
 def test_permissions_and_csrf_are_enforced(
     staff: Staff, session_factory: sessionmaker[Session]
 ) -> None:

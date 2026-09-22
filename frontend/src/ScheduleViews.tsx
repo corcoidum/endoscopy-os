@@ -26,129 +26,7 @@ import {
 } from "./calendarDates";
 import { Icon } from "./icons";
 import type { DayPolicyLookup } from "./dayPolicies";
-
-export function PriorityQueue({
-  appointments,
-  onSelect,
-  selectedId,
-}: {
-  appointments: Appointment[];
-  onSelect: (id: string) => void;
-  selectedId?: string;
-}) {
-  const queueDefinitions = [
-    {
-      key: "verification",
-      label: "이중확인",
-      icon: "warning",
-      tone: "orange",
-      ids: appointments
-        .filter(
-          (appointment) =>
-            appointment.date === "2026-07-30" &&
-            appointment.verification === "대기",
-        )
-        .map((appointment) => appointment.id),
-    },
-    {
-      key: "medication",
-      label: "약제확인",
-      icon: "medication",
-      tone: "violet",
-      ids: appointments
-        .filter((appointment) => appointment.medication === "대기")
-        .map((appointment) => appointment.id),
-    },
-    {
-      key: "d1",
-      label: "D-1 재연락",
-      icon: "phone",
-      tone: "blue",
-      ids: appointments
-        .filter((appointment) => appointment.d1 === "대기")
-        .map((appointment) => appointment.id),
-    },
-    {
-      key: "deposit",
-      label: "예약금",
-      icon: "deposit",
-      tone: "green",
-      ids: appointments
-        .filter((appointment) => appointment.deposit === "대기")
-        .map((appointment) => appointment.id),
-    },
-  ];
-
-  return (
-    <aside className="priority-queue" aria-label="오늘 우선 처리">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">업무 Queue</span>
-          <h2>오늘 우선 처리</h2>
-        </div>
-        <div className="inline-actions">
-          <button className="icon-button" title="Queue 필터">
-            <Icon name="filter" />
-          </button>
-          <button className="icon-button" title="Queue 새로고침">
-            <Icon name="refresh" />
-          </button>
-        </div>
-      </div>
-
-      <div className="queue-list">
-        {queueDefinitions.map((queue) => {
-          const target = appointments.find(
-            (appointment) => appointment.id === queue.ids[0],
-          );
-          if (!target) return null;
-
-          return (
-            <button
-              className={`queue-card queue-card--${queue.tone} ${
-                selectedId === target.id ? "is-selected" : ""
-              }`}
-              key={queue.key}
-              onClick={() => onSelect(target.id)}
-            >
-              <span className="queue-card__icon">
-                <Icon name={queue.icon} />
-              </span>
-              <span className="queue-card__body">
-                <span className="queue-card__top">
-                  <strong>{queue.label}</strong>
-                  <span className="count-badge">{queue.ids.length}</span>
-                </span>
-                <span className="queue-card__patient">
-                  <strong>{target.start}</strong>
-                  <span>{target.name}</span>
-                  <small>{target.chartNumber}</small>
-                </span>
-                <span className="queue-card__meta">
-                  {formatAgeSex(target)}
-                </span>
-              </span>
-              <Icon name="chevron" className="queue-card__chevron" />
-            </button>
-          );
-        })}
-      </div>
-
-      <button className="queue-more">
-        모든 확인 업무 보기
-        <Icon name="chevron" />
-      </button>
-
-      <div className="queue-safety-note">
-        <Icon name="shield" />
-        <span>
-          <strong>합성 데이터 Prototype</strong>
-          실제 환자정보는 입력하지 않습니다.
-        </span>
-      </div>
-    </aside>
-  );
-}
+import { VERIFICATION_STATE_LABELS } from "./verificationsApi";
 
 export function AppointmentCard({
   appointment,
@@ -207,10 +85,17 @@ export function AppointmentCard({
         </span>
       </span>
       <span className="appointment-card__status">
-        <AppStatusMark icon="medication" state={appointment.medication} label="약제" />
-        <AppStatusMark icon="phone" state={appointment.d1} label="D-1" />
+        {/* 실제 예약은 연결된 이중확인만 보여 준다. 약제·D-1·예약금은 아직 미연결이다. */}
+        {!appointment.backendManaged && (
+          <AppStatusMark icon="medication" state={appointment.medication} label="약제" />
+        )}
+        {!appointment.backendManaged && (
+          <AppStatusMark icon="phone" state={appointment.d1} label="D-1" />
+        )}
         <AppStatusMark icon="check" state={appointment.verification} label="이중확인" />
-        <AppStatusMark icon="deposit" state={appointment.deposit} label="예약금" />
+        {!appointment.backendManaged && (
+          <AppStatusMark icon="deposit" state={appointment.deposit} label="예약금" />
+        )}
       </span>
     </button>
   );
@@ -670,15 +555,25 @@ export function DayView({
                     ))
                   : <small>추가 시행 없음</small>}
               </span>
-              <StateLabel state={appointment.verification} />
-              <StateLabel state={appointment.pacs} />
+              {/* 실제 예약은 재확인 필요·1차·2차 대기를 구분해 보여 준다. */}
+              <StateLabel
+                state={appointment.verification}
+                label={
+                  appointment.verificationState
+                    ? VERIFICATION_STATE_LABELS[appointment.verificationState]
+                    : undefined
+                }
+              />
+              {/* PACS는 업무 흐름이 정해질 때까지 실제 예약에서 숨긴다. */}
+              {appointment.backendManaged ? <span /> : <StateLabel state={appointment.pacs} />}
             </button>
           ))}
         </div>
         <div className="pacs-panel">
-          <span className="eyebrow">PACS 입력 확인 Panel</span>
+          {/* PACS 확인은 아직 구현하지 않아 이 안내에서도 드러내지 않는다. */}
+          <span className="eyebrow">인적사항 이중확인</span>
           <h2>핵심정보 이중확인</h2>
-          <p>선택 환자의 이름·차트번호·생년월일·성별·검사·수면을 확인합니다.</p>
+          <p>예약을 누르면 상세에서 이름·차트번호·생년월일·성별·검사·수면을 1·2차로 확인합니다.</p>
           <div className="safety-banner">
             <Icon name="shield" />
             2차 확인 후 핵심정보가 수정되면 기존 확인은 자동 무효화됩니다.

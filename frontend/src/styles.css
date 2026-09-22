@@ -5614,6 +5614,11 @@ button.data-table__row:hover {
   margin: 0;
 }
 
+/* 동일 계정·권한·취소 안내는 확인 판단에 필요한 문구라 본문 크기로 보여 준다. */
+.verification-panel .field-note {
+  font-size: 12px;
+}
+
 .verification-history summary {
   cursor: pointer;
   color: var(--muted);
@@ -5676,4 +5681,18 @@ button.data-table__row:hover {
 .data-table--verification .data-table__row {
   grid-template-columns: 100px 150px 130px minmax(160px, 1fr) 120px 96px;
   gap: 8px;
+}
+
+.data-table--verification .row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* 주간 보드 업무 Queue 안의 미연결 안내는 옆 카드 글자 크기에 맞춘다. */
+.priority-queue .unconnected-note {
+  align-items: flex-start;
+  font-size: 11px;
+  line-height: 1.45;
 }

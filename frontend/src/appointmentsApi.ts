@@ -200,7 +200,7 @@ export function mapAppointmentResponse(item: AppointmentResponse): Appointment {
     exceptionReason: item.exception_reason ?? undefined,
     memo:
       item.exception_memo ??
-      "일정·예약 핵심정보만 Backend 연결됨. 확인·준비·수납은 정적 Prototype 영역입니다.",
+      "일정·예약 핵심정보와 인적사항 이중확인은 Backend에 연결됨. 준비·약제·수납은 정적 Prototype 영역입니다.",
     backendManaged: true,
     rowVersion: item.row_version,
     verificationState: item.verification_state,

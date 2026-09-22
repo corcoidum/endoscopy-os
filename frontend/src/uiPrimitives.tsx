@@ -42,11 +42,11 @@ export function BrandMark() {
   );
 }
 
-export function StateLabel({ state }: { state: CheckState }) {
+export function StateLabel({ state, label }: { state: CheckState; label?: string }) {
   return (
     <span className={`state-label state-label--${checkTone(state)}`}>
       <Icon name={state === "대기" ? "warning" : "check"} />
-      {state}
+      {label ?? state}
     </span>
   );
 }

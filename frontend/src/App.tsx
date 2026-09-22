@@ -52,11 +52,13 @@ import {
   PathologyLedger,
 } from "./PathologyViews";
 import { AdminView, StatisticsView } from "./ReportViews";
-import { VerificationQueueView } from "./VerificationQueueView";
+import {
+  VerificationPriorityQueue,
+  VerificationQueueView,
+} from "./VerificationQueueView";
 import {
   DayView,
   MonthView,
-  PriorityQueue,
   TodayView,
   WeekSchedule,
 } from "./ScheduleViews";
@@ -129,6 +131,9 @@ function Workbench({
           : hasAnyPermission(user, item.permissions),
       ),
     [canCreateAppointment, user],
+  );
+  const canOpenConfirmation = visibleNavigation.some(
+    (item) => item.id === "confirmation",
   );
 
   const selectedAppointment =
@@ -837,10 +842,15 @@ function Workbench({
 
         {activeView === "week" ? (
           <div className="workbench-grid">
-            <PriorityQueue
-              appointments={appointments}
+            <VerificationPriorityQueue
+              revision={scheduleRevision}
               selectedId={selectedId}
-              onSelect={openAppointmentDetail}
+              onLoaded={setQueueAppointments}
+              onOpen={(appointment) => openAppointmentDetail(appointment.id)}
+              onRefresh={() => setScheduleRevision((current) => current + 1)}
+              onOpenAll={
+                canOpenConfirmation ? () => setActiveView("confirmation") : undefined
+              }
             />
             {renderMainView()}
           </div>

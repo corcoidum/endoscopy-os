@@ -247,6 +247,17 @@ export function AppointmentVerificationPanel({
       {!active && (
         <p className="field-note">취소되었거나 No-show로 기록된 예약은 새로 확인할 수 없습니다.</p>
       )}
+      {active && !canPrimary &&
+        (status.state === "UNVERIFIED" || status.state === "REVERIFY_REQUIRED") && (
+        <p className="field-note">
+          이 계정에는 1차 확인 권한이 없습니다. 1차 확인 권한이 있는 직원에게 요청해 주세요.
+        </p>
+      )}
+      {active && !canSecondary && status.state === "PRIMARY_DONE" && (
+        <p className="field-note">
+          이 계정에는 2차 확인 권한이 없습니다. 2차 확인 권한이 있는 직원에게 요청해 주세요.
+        </p>
+      )}
 
       {(showPrimaryForm || showSecondaryForm) && (
         <div className="verification-form">

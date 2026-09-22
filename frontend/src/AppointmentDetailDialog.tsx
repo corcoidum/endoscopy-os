@@ -165,7 +165,8 @@ export function AppointmentDetailDialog({
                   />
                   <p className="unconnected-note">
                     <Icon name="info" />
-                    D-1 연락·약제 확인·예약금은 아직 실제 기록과 연결하지 않아 표시하지 않습니다.
+                    D-1 연락·약제 확인·장정결·예약금·검진 항목은 아직 실제 기록과 연결하지 않아
+                    표시하지 않습니다.
                   </p>
                 </>
               ) : (
@@ -211,10 +212,20 @@ export function AppointmentDetailDialog({
                     <div><dt>검사 종류</dt><dd>{procedureLabel(appointment)}</dd></div>
                     <div><dt>생년월일</dt><dd>{appointment.dateOfBirth}</dd></div>
                     <div><dt>나이 · 성별</dt><dd>{formatAgeSex(appointment)}</dd></div>
-                    <div><dt>일반검진</dt><dd>{appointment.generalScreening ?? "미확인"}</dd></div>
-                    <div><dt>대장암검진</dt><dd>{appointment.colorectalScreening ?? "미확인"}{appointment.colorectalScreening === "실시" ? ` · ${appointment.colorectalScreeningResult ?? "미확인"}` : ""}</dd></div>
+                    {!appointment.backendManaged && <div><dt>일반검진</dt><dd>{appointment.generalScreening ?? "미확인"}</dd></div>}
+                    {!appointment.backendManaged && <div><dt>대장암검진</dt><dd>{appointment.colorectalScreening ?? "미확인"}{appointment.colorectalScreening === "실시" ? ` · ${appointment.colorectalScreeningResult ?? "미확인"}` : ""}</dd></div>}
                   </dl>
                 </section>
+                {appointment.backendManaged ? (
+                  // 실제 예약은 준비 기록이 아직 없으므로 저장된 메모(오후 예외 확인 메모 등)만 보여 준다.
+                  <section>
+                    <span className="eyebrow">예약 메모</span>
+                    <h3>메모</h3>
+                    <dl className="appointment-detail-list">
+                      <div><dt>메모</dt><dd>{appointment.memo ?? "기록 없음"}</dd></div>
+                    </dl>
+                  </section>
+                ) : (
                 <section>
                   <span className="eyebrow">준비 및 안내</span>
                   <h3>검사 전 확인</h3>
@@ -226,6 +237,7 @@ export function AppointmentDetailDialog({
                     {appointment.positiveScreeningColonoscopyMemo && <div><dt>양성 후 대장내시경</dt><dd>{appointment.positiveScreeningColonoscopyMemo}</dd></div>}
                   </dl>
                 </section>
+                )}
               </div>
             </div>
           )}
@@ -245,6 +257,12 @@ export function AppointmentDetailDialog({
                 <div><dt>오후 예외</dt><dd>{appointment.afternoonException ? appointment.exceptionReason ?? "승인 사유 확인" : "해당 없음"}</dd></div>
                 <div><dt>당일 추가</dt><dd>{appointment.sameDay ? `${appointment.sameDayExtension ? "연장슬롯 · " : ""}${appointment.sameDayReason ?? "사유 확인"}` : "해당 없음"}</dd></div>
               </dl>
+              {appointment.backendManaged && (
+                <p className="unconnected-note">
+                  <Icon name="info" />
+                  국가검진 실시 기록은 아직 실제 기록과 연결하지 않은 Prototype 기본값입니다.
+                </p>
+              )}
               <AppointmentOperationsEditor key={`${appointment.id}-screening`} appointment={appointment} mode="screening" canEdit={canEdit} onSave={onUpdate} />
             </section>
           )}

@@ -2,11 +2,12 @@
 
 원내 내부망에서 사용하는 내시경 예약·검사·조직검사 Follow-up 운영
 시스템입니다. EMR 또는 PACS를 대체하지 않으며, 현재 구현 범위는
-**Phase 4 · Sprint 4A(인적사항 1·2차 확인)**까지입니다. 환자 기능과 예약 조회·
-등록·변경·취소·No-show·이력, 14:00 오후 예외 확인, 날짜별 일정 예외 관리, 예약별
-인적사항 1·2차 확인·정정·자동 무효화가 Frontend까지 실제 API에 연결되어 있습니다.
-준비·약제·결제·PACS 확인·통계·조직검체는 이후 Sprint 범위라 아직 합성 Fixture나
-저장하지 않는 Prototype으로 동작합니다.
+**Phase 4 · Sprint 4B(대장내시경 복용약 확인·의사 결정)**까지입니다. 환자 기능과
+예약 조회·등록·변경·취소·No-show·이력, 14:00 오후 예외 확인, 날짜별 일정 예외 관리,
+예약별 인적사항 1·2차 확인·정정·자동 무효화, 대장내시경 복용약 확인과 약별 의사
+중단·지속 결정이 Frontend까지 실제 API에 연결되어 있습니다. 장정결·D-1·결제·PACS 확인·
+통계·조직검체는 이후 Sprint 범위라 아직 합성 Fixture나 저장하지 않는 Prototype으로
+동작합니다.
 
 > 실제 환자정보를 입력하지 마세요. Patient 기능은 구현했지만 개발 PC의 Disk
 > 암호화와 실제 원내 PC 운영 Gate가 끝나지 않았습니다. Test·Seed는 합성
@@ -104,10 +105,28 @@ Test)을 통과해 종료했습니다.
   Migration으로 부여합니다. 2차는 기존 `verification.secondary`(관리자·내시경 담당)를
   씁니다.
 
+### Sprint 4B 대장내시경 복용약 확인·의사 결정 완료
+
+- 예약별 복용약 확인: 전체 복용약 목록 확인과 '복용약 없음' 확인을 구별하고, 복용 분류
+  (항응고제·항혈소판제·혈액순환제·심장약·신경계 약·만성질환 약), 수술·심혈관 시술 이력,
+  EMR 기록을 저장합니다. 저장할 때마다 전체 값을 Revision으로 남깁니다.
+- 약별 의사 결정: 중단(1~90일) 또는 복용 지속(사유 필수)을 결정 의사 Profile과 입력한
+  로그인 사용자와 함께 기록합니다. 시스템은 중단 여부나 기간을 정하거나 권하지 않습니다.
+  결정은 고치지 않고 새 Revision으로 쌓으며, 철회도 사유와 함께 남깁니다.
+- 검사일이 바뀌면 기존 결정은 남기고 '재검토 필요'로 표시합니다. 새 결정은 의사가 다시
+  정해야 하며, 지난 결정으로는 환자 안내·실제 중단 확인을 받지 않습니다.
+- 환자 안내와 실제 중단 확인을 현재 결정에 기록합니다.
+- 약 이름·복용약 목록·수술력·사유는 `pgcrypto`로 암호화합니다.
+- 예약 상세 준비·약제 탭, 예약 등록 5단계, 주간 카드·일간 보드·업무 Queue·확인 업무
+  화면이 실제 복용약 상태를 씁니다. 관리자 화면에서 의사 Profile을 관리합니다.
+- 권한: `medication.read`·`medication.write`·`medication.decision`(관리자·원무·내시경 담당).
+  기존 Database 역할에도 Migration으로 부여합니다.
+
 아직 합성 Fixture나 저장하지 않는 Prototype으로 동작하는 화면:
 
 - 오늘 화면(Dashboard), 통계, 조직검체
-- 예약 상세의 준비·약제·결제 편집기(실제 예약에서는 막혀 있고 미연결 안내가 붙음)
+- 예약 상세의 장정결제·추가 검사·D-1 값과 결제 편집기(실제 예약에서는 막혀 있고 미연결
+  안내가 붙음)
 - PACS 수기확인은 아직 없어 실제 예약 화면에서 숨깁니다.
 
 개발 품질 기준:
@@ -117,12 +136,12 @@ Test)을 통과해 종료했습니다.
 - PostgreSQL 통합 Test는 Migration을 적용한 Schema와 ORM metadata의 차이, 동시
   예약, 단계별 유효 확인 유일성, 확인과 핵심정보 변경의 경합도 검사합니다.
 - `scripts/e2e.ps1`이 일회용 PostgreSQL과 실제 Backend·Browser로 예약 변경·이력·
-  취소, 일정 예외 승인·취소, 두 직원의 1·2차 확인·정정·재확인·무효화 흐름을
-  확인합니다.
+  취소, 일정 예외 승인·취소, 두 직원의 1·2차 확인·정정·재확인·무효화, 복용약 확인·
+  의사 결정·안내·검사일 변경 재검토 흐름을 확인합니다.
 
-상세 결과는 [Sprint 3B 2단계 보고서](./docs/11-sprint-3b-stage2-frontend-api-report.md)와
-[Sprint 3B 종료 검증·Sprint 4A 보고서](./docs/12-sprint-4a-identity-verification-report.md)를
-참고하세요.
+상세 결과는 [Sprint 3B 2단계 보고서](./docs/11-sprint-3b-stage2-frontend-api-report.md),
+[Sprint 3B 종료 검증·Sprint 4A 보고서](./docs/12-sprint-4a-identity-verification-report.md),
+[Sprint 4B 보고서](./docs/13-sprint-4b-medication-review-report.md)를 참고하세요.
 
 ## 전체 로드맵
 
@@ -135,7 +154,7 @@ Test)을 통과해 종료했습니다.
 | Sprint 2 | Patient 등록·검색·정정 History, 차트번호 중복, 나이 계산, 연락처 암호화 | 완료 | [06](./docs/06-sprint-2-entry-gate.md), [07](./docs/07-sprint-2-implementation-report.md) |
 | Sprint 3A | 예약 Backend Core(점유시간·운영시간·Capacity·충돌 차단·API), 세트60/90 | 완료 | [08](./docs/08-sprint-3a-implementation-report.md) |
 | Sprint 3B | 날짜별 Override, 14:00 오후 예외 승인, 예약 변경·취소·No-show·Revision, 일정·예약 Form 실제 API 전환, PostgreSQL 동시성 통합 Test | 완료 (2026-09-22 종료 검증) | [10](./docs/10-sprint-3b-stage1-backend-report.md), [11](./docs/11-sprint-3b-stage2-frontend-api-report.md), [12](./docs/12-sprint-4a-identity-verification-report.md) |
-| **Sprint 4** | 1차·2차 이중확인, PACS 수기확인, 장정결·약제·추가검사 | **진행 중** (4A 1·2차 이중확인 완료 · PACS 수기확인·장정결·약제·추가검사 예정) | [12](./docs/12-sprint-4a-identity-verification-report.md) |
+| **Sprint 4** | 1차·2차 이중확인, PACS 수기확인, 장정결·약제·추가검사 | **진행 중** (4A 1·2차 이중확인, 4B 복용약 확인·의사 결정 완료 · PACS 수기확인·장정결·추가검사·준비 Gate·약제 Master 예정) | [12](./docs/12-sprint-4a-identity-verification-report.md), [13](./docs/13-sprint-4b-medication-review-report.md) |
 | Sprint 5 | 예약금(정책 Version·거래원장), 취소, No-show, D-1 연락 | 예정 | — |
 | Sprint 6 | 실제 검사 완료, Biopsy·CLO 검사대장, 병리 Follow-up·Overdue, Risk Dashboard, 통계 | 예정 | [09 병리 PDF Import 설계안](./docs/09-pathology-pdf-import-security-design.md) |
 | Sprint 7 | 영구 Audit Log, Backup·Restore·월간 Restore Test, Windows 운영 Script | 예정 | — |
@@ -193,9 +212,9 @@ Pop-Location
 ```
 
 실제 PostgreSQL·Backend·Browser로 예약 변경·이력·취소, 일정 예외, 두 직원의
-인적사항 1·2차 확인 흐름을 확인하는 Smoke Test는 Docker가 필요해 `verify.ps1`과
-따로 실행합니다. 매번 일회용 Database Container를 만들고 끝나면 지우며, 합성
-계정(관리자·내시경 담당)과 환자만 씁니다. Browser는 설치된 Google Chrome을
+인적사항 1·2차 확인, 복용약 확인·의사 결정 흐름을 확인하는 Smoke Test는 Docker가
+필요해 `verify.ps1`과 따로 실행합니다. 매번 일회용 Database Container를 만들고 끝나면
+지우며, 합성 계정(관리자·내시경 담당)·합성 의사 Profile과 환자만 씁니다. Browser는 설치된 Google Chrome을
 씁니다(`E2E_BROWSER_CHANNEL`로 변경 가능).
 
 ```powershell
@@ -364,6 +383,9 @@ finally {
 - 이미 활성 관리자 계정이 있으면 추가 관리자를 자동 생성하지 않습니다.
 - 최초 로그인 직후 임시 Password를 변경해야 업무 화면에 들어갈 수 있습니다.
 - 추가 사용자는 관리자 로그인 후 User API를 통해 등록합니다.
+- 복용약 의사 결정을 기록하려면 관리자 화면의 `의사 Profile`에서 원장 Profile을 한 명
+  등록합니다. 원장 1인 운영이라 의사 선택 항목을 두지 않으므로 활성 의사 Profile은 한 명만
+  둡니다.
 
 개발용 합성 환자 네 명이 필요할 때만 다음 명령을 실행합니다. 운영 환자
 초기입력 용도로 사용하지 않습니다.
@@ -502,6 +524,16 @@ Local Python으로 Alembic을 직접 실행하려면 `DATABASE_URL` 또는
 | `POST` | `/api/appointments/{id}/verifications/primary` | 화면에 보인 핵심정보로 1차 확인(`verification.primary`) |
 | `POST` | `/api/appointments/{id}/verifications/secondary` | 1차 확인자와 다른 직원의 2차 확인(`verification.secondary`) |
 | `POST` | `/api/appointments/{id}/verifications/secondary/correct` | 사유를 남기고 완료된 2차 확인을 정정 |
+| `GET` | `/api/appointments/{id}/medication-review` | 복용약 확인 상태, Checklist, 현재 의사 결정, 전체 이력, 활성 의사 Profile |
+| `PUT` | `/api/appointments/{id}/medication-review/checklist` | `row_version`을 포함한 복용약 확인 저장 |
+| `POST` | `/api/appointments/{id}/medication-review/items` | 중단 검토 약 추가(의사 결정 동시 기록은 `medication.decision` 필요) |
+| `POST` | `/api/appointments/{id}/medication-review/items/{item_key}/decision` | 의사 중단·지속 결정을 새 Revision으로 기록 |
+| `POST` | `/api/appointments/{id}/medication-review/items/{item_key}/withdraw` | 사유를 남기고 중단 검토 약 철회 |
+| `POST` | `/api/appointments/{id}/medication-review/items/{item_key}/notify` | 현재 결정의 환자 안내 기록 |
+| `POST` | `/api/appointments/{id}/medication-review/items/{item_key}/hold-confirmation` | 실제 중단 확인일 기록 |
+| `GET` | `/api/staff-profiles/physicians` | 활성 의사 Profile(`medication.read`) |
+| `GET`·`POST` | `/api/staff-profiles` | 직원·의사 명부 조회·등록(`identity.manage`) |
+| `PATCH` | `/api/staff-profiles/{id}/activation` | 명부 비활성화·다시 활성화 |
 | `GET` | `/api/schedule/day-policies` | 날짜별 휴진·운영시간·수용량·오후 예외 허용 조회 |
 | `GET` | `/api/schedule/overrides` | 기간별 일정 예외 Rule 조회 |
 | `POST` | `/api/schedule/overrides` | 일정 예외 Rule 등록(승인 대기) |
@@ -540,8 +572,9 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
   실패 기록은 Backend Process Memory에만 있어 재시작 시 초기화됩니다.
 - 사용자·역할 변경의 영구 Audit Log는 Sprint 7 범위입니다. 인적사항 확인·정정·
   무효화 기록은 업무 이력이며 영구 Audit Log가 아닙니다.
-- PACS 수기확인과 준비 Gate(유효한 이중확인 없이 준비 완료를 막는 규칙)는 아직
-  없습니다(Sprint 4 후속).
+- PACS 수기확인, 준비 Gate(유효한 이중확인·복용약 확인 없이 준비 완료를 막는 규칙),
+  약제 Master(참고 중단기간)는 아직 없습니다(Sprint 4 후속). 복용 분류로 의사 검토 대상을
+  자동 판정하지 않으며, 예약 등록의 복용약 저장은 예약 생성과 한 Transaction이 아닙니다.
 - PostgreSQL 통합 Test는 `TEST_POSTGRES_URL`을 지정했을 때만 실행됩니다. 대상
   Schema를 초기화하므로 일회용 Test Database에만 연결하세요. 실행 방법은
   [Sprint 3B 1단계 보고서](./docs/10-sprint-3b-stage1-backend-report.md)를
@@ -558,4 +591,5 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
 - [Sprint 3B 1단계 Backend 보고서](./docs/10-sprint-3b-stage1-backend-report.md)
 - [Sprint 3B 2단계 Frontend 연결 보고서](./docs/11-sprint-3b-stage2-frontend-api-report.md)
 - [Sprint 3B 종료 검증·Sprint 4A 인적사항 1·2차 확인 보고서](./docs/12-sprint-4a-identity-verification-report.md)
+- [Sprint 4B 대장내시경 복용약 확인·의사 결정 보고서](./docs/13-sprint-4b-medication-review-report.md)
 - [병리 PDF Import 보안 설계안 (Sprint 6 참고)](./docs/09-pathology-pdf-import-security-design.md)

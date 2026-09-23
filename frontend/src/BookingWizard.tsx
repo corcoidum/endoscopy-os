@@ -123,13 +123,30 @@ export function BookingWizard({
 
   // appointment은 존재 여부와 id만 쓰므로 `appointment?.id` 하나로
   // 두 변화를 모두 따라간다.
-  const validation = useMemo(
+  const baseValidation = useMemo(
     () =>
       appointment
         ? validateBooking(draft, appointments, dayPolicy(draft.date), appointment.id)
         : validateBackendBookingDraft(draft),
     [draft, appointments, dayPolicy, appointment?.id],
   );
+  // 의사가 확인한 중단 결정을 저장할 결정 의사 Profile이 없으면 저장 전에 막고 이유를 보여 준다.
+  const physicianProblem =
+    !appointment &&
+    !draft.medicationNone &&
+    physicianCheck?.problem &&
+    draft.medicationDiscontinuations.some(
+      (row) => row.medicationName.trim() && row.discontinuationDays.trim() && row.doctorConfirmed,
+    )
+      ? physicianCheck.problem
+      : null;
+  const validation = physicianProblem
+    ? {
+        ...baseValidation,
+        valid: false,
+        errors: [...baseValidation.errors, physicianProblem],
+      }
+    : baseValidation;
   const birthDateValid = isValidBirthDate(draft.dateOfBirth, draft.date);
   const identityComplete = Boolean(
     draft.name.trim() &&

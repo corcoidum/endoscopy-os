@@ -562,7 +562,8 @@ function MedicationItemCard({
           {canDecide && (
             <button
               type="button"
-              className="primary-button"
+              // 결정이 없거나 재검토가 필요할 때만 주요 동작으로 강조한다.
+              className={!decided || item.needs_re_review ? "primary-button" : "secondary-button"}
               disabled={pending || !physician}
               onClick={() => setMode("decide")}
             >

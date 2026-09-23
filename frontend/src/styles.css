@@ -5913,3 +5913,7 @@ fieldset.medication-decision:disabled {
   color: #172033;
   font-size: 16px;
 }
+
+.medication-decision-form input[type="number"] {
+  max-width: 180px;
+}

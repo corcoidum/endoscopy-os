@@ -1,5 +1,6 @@
 import type { AppointmentEventType, AppointmentHistoryEvent } from "./appointmentsApi";
 import type { Appointment } from "./data";
+import { MEDICATION_QUEUE_ORDER, type MedicationState } from "./medicationsApi.ts";
 import type { VerificationState, VerificationSubject } from "./verificationsApi";
 
 export const EVENT_LABELS: Record<AppointmentEventType, string> = {
@@ -123,6 +124,23 @@ export function verificationQueue<T extends Pick<Appointment, "date" | "start" |
       const byState =
         VERIFICATION_QUEUE_ORDER.indexOf(left.verificationState as VerificationState) -
         VERIFICATION_QUEUE_ORDER.indexOf(right.verificationState as VerificationState);
+      if (byState !== 0) return byState;
+      return `${left.date} ${left.start}`.localeCompare(`${right.date} ${right.start}`);
+    });
+}
+
+/** 복용약 확인·의사 결정·환자 안내가 남은 실제 예약만 처리 순서와 일시 순으로 늘어놓는다. */
+export function medicationQueue<T extends Pick<Appointment, "date" | "start" | "medicationState">>(
+  appointments: T[],
+): T[] {
+  return appointments
+    .filter((item) =>
+      item.medicationState ? MEDICATION_QUEUE_ORDER.includes(item.medicationState) : false,
+    )
+    .sort((left, right) => {
+      const byState =
+        MEDICATION_QUEUE_ORDER.indexOf(left.medicationState as MedicationState) -
+        MEDICATION_QUEUE_ORDER.indexOf(right.medicationState as MedicationState);
       if (byState !== 0) return byState;
       return `${left.date} ${left.start}`.localeCompare(`${right.date} ${right.start}`);
     });

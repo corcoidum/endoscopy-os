@@ -12,6 +12,14 @@ import { AppointmentHistoryPanel } from "./AppointmentHistoryPanel";
 import { appointmentHasStarted } from "./appointmentPresentation";
 import type { AppointmentReasonAction } from "./AppointmentReasonDialog";
 import { AppointmentVerificationPanel } from "./AppointmentVerificationPanel";
+import {
+  AppointmentMedicationPanel,
+  type MedicationAccess,
+} from "./AppointmentMedicationPanel";
+import {
+  MEDICATION_STATE_LABELS,
+  MEDICATION_STATE_TONES,
+} from "./medicationsApi";
 
 /** Backend 예약의 인적사항 1·2차 확인에 필요한 Session·권한. */
 export type VerificationAccess = {
@@ -42,6 +50,8 @@ export function AppointmentDetailDialog({
   canVerify,
   backendActions,
   verification,
+  medication,
+  initialTab,
 }: {
   appointment: Appointment;
   onClose: () => void;
@@ -53,8 +63,10 @@ export function AppointmentDetailDialog({
   canVerify: boolean;
   backendActions?: BackendAppointmentActions;
   verification?: VerificationAccess;
+  medication?: MedicationAccess;
+  initialTab?: string;
 }) {
-  const [tab, setTab] = useState("업무 요약");
+  const [tab, setTab] = useState(initialTab ?? "업무 요약");
   const [correctingVerification, setCorrectingVerification] = useState(false);
   const [correctionReason, setCorrectionReason] = useState("");
   const [correctionError, setCorrectionError] = useState("");
@@ -163,10 +175,27 @@ export function AppointmentDetailDialog({
                     canSecondary={verification.canSecondary}
                     onChanged={verification.onChanged}
                   />
+                  {appointment.medicationState && (
+                    <div className="medication-summary-line">
+                      <span>복용약</span>
+                      <span
+                        className={`verification-state verification-state--${MEDICATION_STATE_TONES[appointment.medicationState]}`}
+                      >
+                        {MEDICATION_STATE_LABELS[appointment.medicationState]}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => setTab("준비·약제")}
+                      >
+                        준비·약제에서 확인
+                      </button>
+                    </div>
+                  )}
                   <p className="unconnected-note">
                     <Icon name="info" />
-                    D-1 연락·약제 확인·장정결·예약금·검진 항목은 아직 실제 기록과 연결하지 않아
-                    표시하지 않습니다.
+                    D-1 연락·장정결·예약금·검진 항목은 아직 실제 기록과 연결하지 않아 표시하지
+                    않습니다.
                   </p>
                 </>
               ) : (
@@ -267,7 +296,27 @@ export function AppointmentDetailDialog({
             </section>
           )}
 
-          {tab === "준비·약제" && (
+          {tab === "준비·약제" && appointment.backendManaged && medication && (
+            <section className="appointment-detail-section">
+              <span className="eyebrow">준비·약제</span>
+              <h3>검사 전 준비사항</h3>
+              <AppointmentMedicationPanel
+                appointmentId={appointment.id}
+                revision={appointment.rowVersion}
+                access={medication}
+              />
+              <dl className="appointment-detail-list appointment-detail-list--wide">
+                <div><dt>위 수면</dt><dd>{appointment.upperSedation === undefined || appointment.procedure === "대장" ? "해당 없음" : appointment.upperSedation ? "수면" : "비수면"}</dd></div>
+                <div><dt>대장 수면</dt><dd>{appointment.colonSedation === undefined || appointment.procedure === "위" ? "해당 없음" : appointment.colonSedation ? "수면" : "비수면"}</dd></div>
+              </dl>
+              <p className="unconnected-note">
+                <Icon name="info" />
+                장정결제·추가 검사·D-1 안내는 아직 실제 기록과 연결하지 않아 표시하지 않습니다.
+              </p>
+            </section>
+          )}
+
+          {tab === "준비·약제" && !(appointment.backendManaged && medication) && (
             <section className="appointment-detail-section">
               <span className="eyebrow">준비·약제</span>
               <h3>검사 전 준비사항</h3>

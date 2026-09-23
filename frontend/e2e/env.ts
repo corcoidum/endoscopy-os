@@ -15,6 +15,9 @@ export const E2E_STAFF_NAME = "E2E 합성 내시경";
 export const E2E_STAFF_INITIAL_PASSWORD = "Synthetic-E2E-Staff-Initial-42!";
 export const E2E_STAFF_PASSWORD = "Synthetic-E2E-Staff-Changed-42!";
 
+// 복용약 의사 결정의 결정 주체가 되는 합성 의사 Profile. globalSetup이 API로 만든다.
+export const E2E_DOCTOR_NAME = "E2E 합성 원장";
+
 /** globalSetup이 만든 합성 예약. 환경변수로 Test Worker에 전달한다. */
 export type E2ESeed = {
   appointmentId: string;
@@ -31,6 +34,12 @@ export type E2ESeed = {
   verificationDate: string;
   verificationStartTime: string;
   verificationAlternativeStartTime: string;
+  /** 복용약 시험용 대장내시경 예약과, 검사일 변경 재검토에 쓸 빈 날짜. */
+  medicationAppointmentId: string;
+  medicationChartNumber: string;
+  medicationDate: string;
+  medicationStartTime: string;
+  medicationNewDate: string;
   runStamp: string;
 };
 

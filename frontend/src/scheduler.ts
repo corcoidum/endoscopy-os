@@ -1,4 +1,5 @@
 import type { DayPolicy } from "./dayPolicies";
+import type { MedicationCategories } from "./medicationsApi";
 import type {
   Appointment,
   CareCategory,
@@ -45,7 +46,10 @@ export interface BookingDraft {
   screeningCopay: "없음" | "10%";
   bowelPreparation: string;
   medicationsChecked: boolean;
+  /** 전체 목록 확인과 구별해 '복용약 없음'을 명시로 확인했는지. */
+  medicationNone: boolean;
   medicationListMemo: string;
+  medicationCategories: MedicationCategories;
   medicationDiscontinuations: MedicationDiscontinuationDraft[];
   additionalExaminations: string[];
   depositStatus: DepositSelection;
@@ -341,6 +345,63 @@ export function dayAvailability(
   };
 }
 
+/**
+ * 예약 등록 5단계 복용약 입력 검사. 시스템은 중단 여부나 기간을 권하지 않으므로,
+ * 입력한 약마다 의사가 정한 일수(1~90)와 담당 의사 확인이 있어야 한다.
+ */
+export function medicationDraftErrors(
+  draft: Pick<
+    BookingDraft,
+    | "medicationsChecked"
+    | "medicationNone"
+    | "medicationListMemo"
+    | "medicationCategories"
+    | "medicationDiscontinuations"
+  >,
+): string[] {
+  const errors: string[] = [];
+  const enteredRows = draft.medicationDiscontinuations.filter(
+    (medication) =>
+      medication.medicationName.trim() ||
+      medication.discontinuationDays.trim() ||
+      medication.doctorConfirmed,
+  );
+  if (draft.medicationNone) {
+    if (enteredRows.length > 0) {
+      errors.push("‘복용약 없음’으로 확인했다면 중단 검토 약을 비워 주세요.");
+    }
+    if (Object.values(draft.medicationCategories).some(Boolean)) {
+      errors.push("‘복용약 없음’으로 확인했다면 복용 분류를 비워 주세요.");
+    }
+    return errors;
+  }
+  if (draft.medicationsChecked && !draft.medicationListMemo.trim()) {
+    errors.push("복용약 목록 확인을 완료하려면 전체 복용약 목록을 기록해 주세요.");
+  }
+  draft.medicationDiscontinuations.forEach((medication, index) => {
+    const medicationName = medication.medicationName.trim();
+    const medicationDays = medication.discontinuationDays.trim();
+    const hasAnyValue = medicationName || medicationDays || medication.doctorConfirmed;
+    if (!hasAnyValue) return;
+    if (!medicationName || !medicationDays) {
+      errors.push(
+        `중단 검토 약 ${index + 1}: 약품명과 의사가 결정한 중단 일수를 함께 입력해 주세요.`,
+      );
+    } else if (
+      !/^\d+$/.test(medicationDays) ||
+      Number(medicationDays) < 1 ||
+      Number(medicationDays) > 90
+    ) {
+      errors.push(
+        `중단 검토 약 ${index + 1}: 중단 일수는 1~90 사이의 정수로 입력해 주세요.`,
+      );
+    } else if (!medication.doctorConfirmed) {
+      errors.push(`중단 검토 약 ${index + 1}: 담당 의사의 확인이 필요합니다.`);
+    }
+  });
+  return errors;
+}
+
 export function validateBooking(
   draft: BookingDraft,
   appointments: Appointment[],
@@ -357,23 +418,7 @@ export function validateBooking(
     errors.push("생년월일을 YYYY-MM-DD 형식의 실제 날짜로 입력해 주세요.");
   }
 
-  draft.medicationDiscontinuations.forEach((medication, index) => {
-    const medicationName = medication.medicationName.trim();
-    const medicationDays = medication.discontinuationDays.trim();
-    const hasAnyValue = medicationName || medicationDays || medication.doctorConfirmed;
-    if (!hasAnyValue) return;
-    if (!medicationName || !medicationDays) {
-      errors.push(
-        `중단 검토 약 ${index + 1}: 약품명과 의사가 결정한 중단 일수를 함께 입력해 주세요.`,
-      );
-    } else if (!/^\d+$/.test(medicationDays)) {
-      errors.push(
-        `중단 검토 약 ${index + 1}: 중단 일수는 0 이상의 정수로 입력해 주세요.`,
-      );
-    } else if (!medication.doctorConfirmed) {
-      errors.push(`중단 검토 약 ${index + 1}: 담당 의사의 확인이 필요합니다.`);
-    }
-  });
+  errors.push(...medicationDraftErrors(draft));
 
   errors.push(...schedule.errors);
 

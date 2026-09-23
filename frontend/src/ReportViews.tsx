@@ -4,6 +4,7 @@ import {
   statisticsPeriodLabel,
 } from "./calendarDates";
 import { Icon } from "./icons";
+import { PhysicianProfilePanel } from "./PhysicianProfilePanel";
 import { ScheduleOverridePanel } from "./ScheduleOverridePanel";
 import type { StatisticsPeriod } from "./viewTypes";
 
@@ -171,12 +172,16 @@ export function StatisticsView({
 
 export function AdminView({
   canManageOverrides,
+  canManageStaff,
   csrfToken,
   onScheduleChanged,
+  onNotify,
 }: {
   canManageOverrides: boolean;
+  canManageStaff: boolean;
   csrfToken: string | null;
   onScheduleChanged: (message: string) => void;
+  onNotify: (message: string) => void;
 }) {
   const settings = [
     {
@@ -234,6 +239,9 @@ export function AdminView({
           csrfToken={csrfToken}
           onScheduleChanged={onScheduleChanged}
         />
+      )}
+      {canManageStaff && (
+        <PhysicianProfilePanel csrfToken={csrfToken} onChanged={onNotify} />
       )}
       <div className="admin-note">
         <Icon name="info" />

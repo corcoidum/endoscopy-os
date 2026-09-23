@@ -69,6 +69,13 @@ import {
   appointmentsApi,
   mapAppointmentResponse,
 } from "./appointmentsApi";
+import {
+  medicationErrorMessage,
+  medicationsApi,
+  solePhysician,
+  wizardMedicationRequests,
+  wizardMedicationTouched,
+} from "./medicationsApi";
 import type { DrawerState, StatisticsPeriod, ViewId } from "./viewTypes";
 
 function Workbench({
@@ -122,6 +129,9 @@ function Workbench({
     "verification.secondary",
   ]);
   const canPrimaryVerify = hasAnyPermission(user, ["verification.primary"]);
+  const canReadMedication = hasAnyPermission(user, ["medication.read"]);
+  const canWriteMedication = hasAnyPermission(user, ["medication.write"]);
+  const canDecideMedication = hasAnyPermission(user, ["medication.decision"]);
   const canWritePathology = hasAnyPermission(user, ["pathology.write"]);
   const visibleNavigation = useMemo(
     () =>
@@ -186,14 +196,14 @@ function Workbench({
     };
   }, [activeView, calendarDate, scheduleRevision]);
 
-  const notify = (message: string) => {
+  const notify = (message: string, durationMs = 2600) => {
     setToast(message);
-    window.setTimeout(() => setToast(""), 2600);
+    window.setTimeout(() => setToast(""), durationMs);
   };
 
-  const openAppointmentDetail = (appointmentId: string) => {
+  const openAppointmentDetail = (appointmentId: string, tab?: string) => {
     setSelectedId(appointmentId);
-    setDrawer({ kind: "appointment", id: appointmentId });
+    setDrawer({ kind: "appointment", id: appointmentId, tab });
   };
 
   const openDay = (date: string) => {
@@ -425,7 +435,38 @@ function Workbench({
           "등록된 합성 환자와 이름·차트번호·생년월일·성별이 정확히 일치하지 않습니다. 합성 환자 Seed 정보를 확인해 주세요.",
         );
       }
+      // 의사 중단 결정을 함께 저장하려면 결정 의사 Profile이 정확히 한 명 있어야 한다.
+      // 예약을 먼저 만들고 복용약만 빠지는 일이 없도록 예약 저장 전에 확인한다.
+      const saveMedication = wizardMedicationTouched(draft);
+      let physicianId: string | null = null;
+      const decidedRows = draft.medicationNone
+        ? []
+        : draft.medicationDiscontinuations.filter(
+            (row) => row.medicationName.trim() && row.discontinuationDays.trim(),
+          );
+      if (saveMedication && decidedRows.length > 0) {
+        const { physician, problem } = solePhysician(await medicationsApi.physicians());
+        if (!physician) throw new Error(problem ?? "결정 의사를 확인할 수 없습니다.");
+        physicianId = physician.id;
+      }
       const response = await appointmentsApi.create(draft, patient.id, csrfToken);
+      let medicationError = "";
+      if (saveMedication) {
+        try {
+          const requests = wizardMedicationRequests(draft, physicianId);
+          await medicationsApi.saveChecklist(response.id, requests.checklist, null, csrfToken);
+          for (const item of requests.items) {
+            await medicationsApi.addItem(
+              response.id,
+              item.medication_name,
+              item.decision,
+              csrfToken,
+            );
+          }
+        } catch (cause) {
+          medicationError = medicationErrorMessage(cause);
+        }
+      }
       const created = {
         ...mapAppointmentResponse(response),
         deposit: draft.depositStatus === "PAID" ? "완료" as const : "대기" as const,
@@ -448,7 +489,19 @@ function Workbench({
       setCalendarDate(created.date);
       setActiveView("week");
       setScheduleRevision((current) => current + 1);
-      notify(`${created.name}님의 예약을 Backend에 저장했습니다.`);
+      if (medicationError) {
+        // 예약은 이미 저장됐으므로 다시 저장하면 중복 예약이 된다. 상세에서 이어서 입력한다.
+        notify(
+          `${created.name}님의 예약은 저장했지만 복용약 기록을 저장하지 못했습니다(${medicationError}). 예약 상세의 준비·약제에서 다시 입력해 주세요.`,
+          9000,
+        );
+      } else {
+        notify(
+          saveMedication
+            ? `${created.name}님의 예약과 복용약 확인을 Backend에 저장했습니다.`
+            : `${created.name}님의 예약을 Backend에 저장했습니다.`,
+        );
+      }
     }
     setBookingModal(null);
   };
@@ -592,11 +645,10 @@ function Workbench({
       return (
         <VerificationQueueView
           revision={scheduleRevision}
+          canReadMedication={canReadMedication}
           onLoaded={setQueueAppointments}
-          onOpen={(appointment) => {
-            setSelectedId(appointment.id);
-            setDrawer({ kind: "appointment", id: appointment.id });
-          }}
+          onOpen={(appointment) => openAppointmentDetail(appointment.id)}
+          onOpenMedication={(appointment) => openAppointmentDetail(appointment.id, "준비·약제")}
         />
       );
     }
@@ -631,7 +683,9 @@ function Workbench({
       return (
         <AdminView
           canManageOverrides={canApproveExtension}
+          canManageStaff={hasAnyPermission(user, ["identity.manage"])}
           csrfToken={csrfToken}
+          onNotify={notify}
           onScheduleChanged={(message) => {
             // 규칙이 바뀌면 달력·예약 Form이 쓰는 날짜별 규칙도 다시 받는다.
             setScheduleRevision((current) => current + 1);
@@ -846,7 +900,11 @@ function Workbench({
               revision={scheduleRevision}
               selectedId={selectedId}
               onLoaded={setQueueAppointments}
+              canReadMedication={canReadMedication}
               onOpen={(appointment) => openAppointmentDetail(appointment.id)}
+              onOpenMedication={(appointment) =>
+                openAppointmentDetail(appointment.id, "준비·약제")
+              }
               onRefresh={() => setScheduleRevision((current) => current + 1)}
               onOpenAll={
                 canOpenConfirmation ? () => setActiveView("confirmation") : undefined
@@ -874,6 +932,9 @@ function Workbench({
 
       {drawerAppointment && (
         <AppointmentDetailDialog
+          // 다른 예약이나 다른 탭으로 열면 탭 상태를 새로 시작한다.
+          key={`${drawerAppointment.id}:${drawer?.kind === "appointment" ? (drawer.tab ?? "") : ""}`}
+          initialTab={drawer?.kind === "appointment" ? drawer.tab : undefined}
           appointment={drawerAppointment}
           onClose={() => setDrawer(null)}
           onEdit={() => openEditBooking(drawerAppointment.id)}
@@ -894,6 +955,21 @@ function Workbench({
                   canSecondary: canVerifyIdentity,
                   onChanged: (message) => {
                     // 확인 상태가 바뀌면 달력·확인 업무 목록도 새 상태로 다시 받는다.
+                    setScheduleRevision((current) => current + 1);
+                    if (message) notify(message);
+                  },
+                }
+              : undefined
+          }
+          medication={
+            drawerAppointment.backendManaged
+              ? {
+                  csrfToken,
+                  canRead: canReadMedication,
+                  canWrite: canWriteMedication,
+                  canDecide: canDecideMedication,
+                  onChanged: (message) => {
+                    // 복용약 상태가 바뀌면 주간 카드·확인 업무 목록의 약제 표시도 다시 받는다.
                     setScheduleRevision((current) => current + 1);
                     if (message) notify(message);
                   },

@@ -5696,3 +5696,220 @@ button.data-table__row:hover {
   font-size: 11px;
   line-height: 1.45;
 }
+
+/* 예약 상세 준비·약제 탭의 복용약 확인과 약별 의사 결정 */
+.verification-state--neutral {
+  background: #eef1f5;
+  color: #5c6679;
+}
+
+.medication-checklist,
+.medication-decision-form {
+  display: grid;
+  gap: 10px;
+}
+
+.medication-status-options,
+.medication-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.medication-status-options legend,
+.medication-categories legend {
+  width: 100%;
+  margin-bottom: 4px;
+  color: #4e596d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.radio-chip,
+.checkbox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.radio-chip:has(input:checked),
+.checkbox-chip:has(input:checked) {
+  border-color: #9bb0ee;
+  background: #eef2fd;
+  color: #25418f;
+}
+
+.medication-categories:disabled .checkbox-chip {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.medication-history-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.medication-checklist__footer,
+.medication-decision-form__actions,
+.medication-item__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.medication-checklist__footer small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.medication-decision-form__actions {
+  justify-content: flex-end;
+}
+
+.medication-items {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.medication-items__heading {
+  display: grid;
+  gap: 2px;
+}
+
+.medication-items__heading strong {
+  font-size: 13px;
+}
+
+.medication-items__heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.medication-item-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.medication-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.medication-item.is-outdated {
+  border-color: #efc6c6;
+}
+
+.medication-item__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.medication-item__meta {
+  margin: 0;
+  color: #4e596d;
+  font-size: 12px;
+}
+
+.medication-item__checks {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.medication-item__checks > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.medication-item__checks dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.medication-item__checks dd {
+  margin: 0;
+}
+
+.medication-item__actions {
+  justify-content: flex-start;
+}
+
+.medication-hold-confirm,
+.medication-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.medication-add .field {
+  flex: 1 1 220px;
+}
+
+.medication-physician-problem {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--red-soft);
+  color: #7d2f2f;
+}
+
+.medication-summary-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* 예약 등록 5단계의 중단 결정 묶음은 '복용약 없음'이면 통째로 잠근다. */
+fieldset.medication-decision {
+  min-width: 0;
+  margin: 0;
+}
+
+fieldset.medication-decision:disabled {
+  opacity: 0.55;
+}
+
+/* 확인 업무 화면의 이중확인·복용약 대기 묶음 */
+.confirmation-section {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.confirmation-section h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 16px;
+}

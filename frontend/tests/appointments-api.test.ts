@@ -33,6 +33,8 @@ const draft: BookingDraft = {
   screeningCopay: "없음",
   bowelPreparation: "원프렙",
   medicationsChecked: false,
+  medicationNone: false,
+  medicationCategories: { anticoagulant: false, antiplatelet: false, circulation: false, cardiac: false, neurologic: false, chronic_disease: false },
   medicationListMemo: "",
   medicationDiscontinuations: [],
   additionalExaminations: [],
@@ -80,6 +82,7 @@ const backendAppointment: AppointmentResponse = {
       { procedure_code: "COLON", sedation_mode: "NON_SEDATED" },
     ],
     verification_state: "VERIFIED",
+    medication_state: "COMPLETE",
     row_version: 3,
 };
 

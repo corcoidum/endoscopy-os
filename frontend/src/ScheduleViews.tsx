@@ -26,6 +26,7 @@ import {
 } from "./calendarDates";
 import { Icon } from "./icons";
 import type { DayPolicyLookup } from "./dayPolicies";
+import { MEDICATION_STATE_LABELS } from "./medicationsApi";
 import { VERIFICATION_STATE_LABELS } from "./verificationsApi";
 
 export function AppointmentCard({
@@ -85,10 +86,8 @@ export function AppointmentCard({
         </span>
       </span>
       <span className="appointment-card__status">
-        {/* 실제 예약은 연결된 이중확인만 보여 준다. 약제·D-1·예약금은 아직 미연결이다. */}
-        {!appointment.backendManaged && (
-          <AppStatusMark icon="medication" state={appointment.medication} label="약제" />
-        )}
+        {/* 실제 예약은 연결된 약제·이중확인만 보여 준다. D-1·예약금은 아직 미연결이다. */}
+        <AppStatusMark icon="medication" state={appointment.medication} label="약제" />
         {!appointment.backendManaged && (
           <AppStatusMark icon="phone" state={appointment.d1} label="D-1" />
         )}
@@ -565,7 +564,19 @@ export function DayView({
                 }
               />
               {/* PACS는 업무 흐름이 정해질 때까지 실제 예약에서 숨긴다. */}
-              {appointment.backendManaged ? <span /> : <StateLabel state={appointment.pacs} />}
+              {appointment.backendManaged ? (
+                // 실제 예약은 PACS 대신 연결된 복용약 상태를 보여 준다.
+                appointment.medicationState && appointment.medicationState !== "NOT_REQUIRED" ? (
+                  <StateLabel
+                    state={appointment.medication}
+                    label={MEDICATION_STATE_LABELS[appointment.medicationState]}
+                  />
+                ) : (
+                  <span />
+                )
+              ) : (
+                <StateLabel state={appointment.pacs} />
+              )}
             </button>
           ))}
         </div>

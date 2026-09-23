@@ -3,6 +3,7 @@ import {
   E2E_ADMIN_INITIAL_PASSWORD,
   E2E_ADMIN_PASSWORD,
   E2E_API_URL,
+  E2E_DOCTOR_NAME,
   E2E_FRONTEND_ORIGIN,
   E2E_STAFF_ID,
   E2E_STAFF_INITIAL_PASSWORD,
@@ -133,9 +134,24 @@ async function ensureStaff(admin: ApiSession): Promise<void> {
   });
 }
 
+/** 복용약 의사 결정에 쓸 활성 의사 Profile을 하나 둔다(원장 1인 운영). */
+async function ensureDoctor(admin: ApiSession): Promise<void> {
+  const listed = await admin.expect("GET", "/api/staff-profiles?staff_type=DOCTOR", 200);
+  const active = (listed.items as Array<{ display_name: string }>) ?? [];
+  if (active.some((profile) => profile.display_name === E2E_DOCTOR_NAME)) return;
+  if (active.length > 0) {
+    throw new Error("다른 활성 의사 Profile이 있어 E2E 의사 결정을 기록할 수 없습니다.");
+  }
+  await admin.expect("POST", "/api/staff-profiles", 201, {
+    display_name: E2E_DOCTOR_NAME,
+    staff_type: "DOCTOR",
+  });
+}
+
 export default async function globalSetup() {
   const session = await adminSession();
   await ensureStaff(session);
+  await ensureDoctor(session);
   const stamp = Date.now().toString(36).toUpperCase();
   const chartNumber = `SYN-E2E-${stamp}`;
   const patientName = "합성이투이";
@@ -162,11 +178,19 @@ export default async function globalSetup() {
     sex: "FEMALE",
   });
   const verificationPatientId = (verificationPatient.patient as { id: string }).id;
+  const medicationChartNumber = `${chartNumber}-D`;
+  const medicationPatient = await session.expect("POST", "/api/patients", 201, {
+    chart_number: medicationChartNumber,
+    name: "합성이투디",
+    birth_date: "1968-03-03",
+    sex: "MALE",
+  });
+  const medicationPatientId = (medicationPatient.patient as { id: string }).id;
 
   // 월·화·목·금 오전(09:00~12:00) 중 오늘 이후 두 시각 이상 비어 있는 날을 차례로 고른다.
   const today = seoulToday();
   const openDates: Array<{ serviceDate: string; starts: string[] }> = [];
-  for (let offset = 1; offset <= 21 && openDates.length < 3; offset += 1) {
+  for (let offset = 1; offset <= 28 && openDates.length < 5; offset += 1) {
     const serviceDate = addDays(today, offset);
     const weekday = new Date(`${serviceDate}T00:00:00Z`).getUTCDay();
     if (![1, 2, 4, 5].includes(weekday)) continue;
@@ -182,7 +206,7 @@ export default async function globalSetup() {
       openDates.push({ serviceDate, starts });
     }
   }
-  if (openDates.length < 3) {
+  if (openDates.length < 5) {
     throw new Error("E2E 합성 예약을 넣을 빈 날짜를 찾지 못했습니다.");
   }
 
@@ -196,7 +220,7 @@ export default async function globalSetup() {
       procedures: [{ procedure_code: "UPPER", sedation_mode: "NON_SEDATED" }],
     });
 
-  const [changeDay, overrideDay, verificationDay] = openDates;
+  const [changeDay, overrideDay, verificationDay, medicationDay, medicationNewDay] = openDates;
   // 확인 업무 화면은 오늘부터 14일만 보여 준다.
   if (verificationDay.serviceDate > addDays(today, 13)) {
     throw new Error("확인 시험 예약이 확인 업무 조회 기간(14일) 밖에 잡혔습니다.");
@@ -204,6 +228,15 @@ export default async function globalSetup() {
   const booked = await book(patientId, changeDay.serviceDate, changeDay.starts[0]);
   await book(otherPatientId, overrideDay.serviceDate, overrideDay.starts[0]);
   await book(verificationPatientId, verificationDay.serviceDate, verificationDay.starts[0]);
+  // 복용약 확인은 대장내시경 예약이 대상이다. 다른 시험과 겹치지 않는 날에 둔다.
+  const medicationBooking = await session.expect("POST", "/api/appointments", 201, {
+    patient_id: medicationPatientId,
+    service_date: medicationDay.serviceDate,
+    start_time: medicationDay.starts[0],
+    care_type: "GENERAL",
+    booking_bucket: "STANDARD_MORNING",
+    procedures: [{ procedure_code: "COLON", sedation_mode: "SEDATED" }],
+  });
 
   const seed: E2ESeed = {
     appointmentId: String(booked.id),
@@ -218,6 +251,11 @@ export default async function globalSetup() {
     verificationDate: verificationDay.serviceDate,
     verificationStartTime: verificationDay.starts[0],
     verificationAlternativeStartTime: verificationDay.starts[verificationDay.starts.length - 1],
+    medicationAppointmentId: String(medicationBooking.id),
+    medicationChartNumber,
+    medicationDate: medicationDay.serviceDate,
+    medicationStartTime: medicationDay.starts[0],
+    medicationNewDate: medicationNewDay.serviceDate,
     runStamp: stamp,
   };
   process.env.E2E_SEED = JSON.stringify(seed);

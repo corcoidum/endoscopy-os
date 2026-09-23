@@ -14,6 +14,7 @@ export type ViewId =
 export type StatisticsPeriod = "week" | "month" | "year";
 
 export type DrawerState =
-  | { kind: "appointment"; id: string }
+  // tab을 주면 예약 상세를 그 탭으로 연다(예: 약제 확인 대기에서 준비·약제).
+  | { kind: "appointment"; id: string; tab?: string }
   | { kind: "pathology"; id: string }
   | null;

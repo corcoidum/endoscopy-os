@@ -1,4 +1,5 @@
 export type Sex = "남" | "여";
+import type { MedicationState } from "./medicationsApi";
 import type { VerificationState } from "./verificationsApi";
 
 export type CareCategory = "검진" | "일반";
@@ -76,6 +77,8 @@ export interface Appointment {
   exceptionPending?: boolean;
   /** Backend 예약의 인적사항 1·2차 확인 상태. */
   verificationState?: VerificationState;
+  /** Backend 예약의 복용약 확인·의사 결정 상태. */
+  medicationState?: MedicationState;
 }
 
 export interface PathologyCase {

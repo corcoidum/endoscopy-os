@@ -4,12 +4,14 @@ import {
 import {
   fromMinutes,
   isValidBirthDate,
+  medicationDraftErrors,
   procedureDuration,
   toMinutes,
   type BookingDraft,
   type ValidationResult,
 } from "./scheduler";
 import { seoulTodayIso } from "./calendarDates";
+import { emptyMedicationCategories } from "./medicationsApi.ts";
 
 export const WIZARD_STEPS = [
   "환자 확인",
@@ -55,6 +57,8 @@ export function draftFromAppointment(
       screeningCopay: appointment.screeningCopay ?? "없음",
       bowelPreparation: appointment.bowelPreparation ?? "원프렙",
       medicationsChecked: appointment.medication === "완료",
+      medicationNone: false,
+      medicationCategories: emptyMedicationCategories(),
       medicationListMemo: appointment.medicationListMemo ?? "",
       medicationDiscontinuations:
         appointment.medicationDiscontinuations?.map((medication, index) => ({
@@ -109,6 +113,8 @@ export function draftFromAppointment(
     screeningCopay: "없음",
     bowelPreparation: "원프렙",
     medicationsChecked: false,
+    medicationNone: false,
+    medicationCategories: emptyMedicationCategories(),
     medicationListMemo: "",
     medicationDiscontinuations: [
       {
@@ -160,6 +166,7 @@ export function validateBackendBookingDraft(draft: BookingDraft): ValidationResu
       errors.push("승인된 30분 연장 슬롯을 선택해 주세요.");
     }
   }
+  errors.push(...medicationDraftErrors(draft));
   return {
     valid: errors.length === 0,
     duration,

@@ -27,6 +27,13 @@ import {
 } from "./bookingDraft";
 import { ApiError } from "./api";
 import {
+  MEDICATION_CATEGORY_KEYS,
+  MEDICATION_CATEGORY_LABELS,
+  medicationsApi,
+  solePhysician,
+  type PhysicianProfile,
+} from "./medicationsApi";
+import {
   appointmentsApi,
   bookingCreateErrorMessage,
   type ScheduleAvailabilityResponse,
@@ -95,6 +102,24 @@ export function BookingWizard({
       : `위 ${selectedPolicy.upperCapacity} · 대장 ${selectedPolicy.colonCapacity}`;
   const dialogRef = useRef<HTMLDivElement>(null);
   const birthDatePickerRef = useRef<HTMLInputElement>(null);
+  // 새 실제 예약만 의사 중단 결정을 저장하므로, 그때만 결정 의사 Profile을 확인한다.
+  const [physicians, setPhysicians] = useState<PhysicianProfile[] | null>(null);
+  useEffect(() => {
+    if (appointment) return;
+    let cancelled = false;
+    void medicationsApi
+      .physicians()
+      .then((items) => {
+        if (!cancelled) setPhysicians(items);
+      })
+      .catch(() => {
+        if (!cancelled) setPhysicians([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appointment]);
+  const physicianCheck = physicians ? solePhysician(physicians) : null;
 
   // appointment은 존재 여부와 id만 쓰므로 `appointment?.id` 하나로
   // 두 변화를 모두 따라간다.
@@ -898,6 +923,11 @@ export function BookingWizard({
       const confirmedMedicationCount = enteredMedications.filter(
         (medication) => medication.doctorConfirmed,
       ).length;
+      const medicationStatus = draft.medicationNone
+        ? "NONE_CONFIRMED"
+        : draft.medicationsChecked
+          ? "LIST_CONFIRMED"
+          : "UNCHECKED";
       return (
         <div className="form-section">
           <div className="form-section__heading">
@@ -914,32 +944,66 @@ export function BookingWizard({
               <span>시스템이 자동으로 중단 여부나 기간을 결정하지 않습니다.</span>
             </div>
           </div>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={draft.medicationsChecked}
-              onChange={(event) =>
-                patchDraft("medicationsChecked", event.target.checked)
-              }
-            />
-            <span>
-              <strong>전체 복용약 목록 확인 완료</strong>
-              <small>환자 진술과 확인 자료를 대조한 뒤 완료로 표시합니다.</small>
-            </span>
-          </label>
+          <fieldset className="medication-status-options">
+            <legend>복용약 확인</legend>
+            {(
+              [
+                ["UNCHECKED", "아직 확인 전"],
+                ["LIST_CONFIRMED", "전체 복용약 목록 확인 완료"],
+                ["NONE_CONFIRMED", "복용약 없음 확인"],
+              ] as const
+            ).map(([value, label]) => (
+              <label className="radio-chip" key={value}>
+                <input
+                  type="radio"
+                  name="wizard-medication-status"
+                  checked={medicationStatus === value}
+                  onChange={() => {
+                    patchDraft("medicationsChecked", value !== "UNCHECKED");
+                    patchDraft("medicationNone", value === "NONE_CONFIRMED");
+                  }}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </fieldset>
+          <small className="field-note">
+            환자 진술과 확인 자료를 대조한 뒤 표시합니다. ‘복용약 없음’은 빈 목록과 구별해
+            기록합니다.
+          </small>
+          <fieldset className="medication-categories" disabled={draft.medicationNone}>
+            <legend>복용 분류 (해당하는 것 모두)</legend>
+            {MEDICATION_CATEGORY_KEYS.map((category) => (
+              <label className="checkbox-chip" key={category}>
+                <input
+                  type="checkbox"
+                  checked={!draft.medicationNone && draft.medicationCategories[category]}
+                  onChange={(event) =>
+                    patchDraft("medicationCategories", {
+                      ...draft.medicationCategories,
+                      [category]: event.target.checked,
+                    })
+                  }
+                />
+                <span>{MEDICATION_CATEGORY_LABELS[category]}</span>
+              </label>
+            ))}
+          </fieldset>
           <label className="field medication-list-memo">
-            <span>전체 복용약 목록 메모</span>
+            <span>
+              전체 복용약 목록{medicationStatus === "LIST_CONFIRMED" ? " (필수)" : " 메모"}
+            </span>
             <textarea
               rows={3}
               value={draft.medicationListMemo}
-              placeholder="예: 합성약 A 1정 아침, 합성약 B 1정 저녁 · 복용약 없음은 ‘없음’으로 기록"
+              placeholder="예: 합성약 A 1정 아침, 합성약 B 1정 저녁"
               onChange={(event) =>
                 patchDraft("medicationListMemo", event.target.value)
               }
             />
             <small>약품명·용량·복용 횟수를 확인된 내용 그대로 기록합니다.</small>
           </label>
-          <div className="medication-decision">
+          <fieldset className="medication-decision" disabled={draft.medicationNone}>
             <div className="medication-decision__heading">
               <div>
                 <strong>특정 복용약 중단 결정 기록</strong>
@@ -989,7 +1053,8 @@ export function BookingWizard({
                       <span>의사가 결정한 실제 중단 일수</span>
                       <input
                         type="number"
-                        min="0"
+                        min="1"
+                        max="90"
                         step="1"
                         inputMode="numeric"
                         value={medication.discontinuationDays}
@@ -1025,11 +1090,26 @@ export function BookingWizard({
               빈 행은 중단 결정 없음으로 처리합니다. 입력한 각 약품은 약품명·일수와
               담당 의사 확인이 모두 필요합니다.
             </small>
-          </div>
+            {!appointment && physicianCheck && (
+              <small
+                className={
+                  physicianCheck.problem
+                    ? "field-note medication-physician-problem"
+                    : "field-note"
+                }
+              >
+                {physicianCheck.physician
+                  ? `담당 의사 확인으로 표시한 약은 결정 의사 ${physicianCheck.physician.display_name}(으)로 기록됩니다.`
+                  : physicianCheck.problem}
+              </small>
+            )}
+          </fieldset>
           <div className="medication-summary-grid">
             <div className={draft.medicationsChecked ? "is-complete" : "is-warning"}>
-              <span>전체 목록 확인</span>
-              <strong>{draft.medicationsChecked ? "완료" : "대기"}</strong>
+              <span>복용약 확인</span>
+              <strong>
+                {draft.medicationNone ? "없음 확인" : draft.medicationsChecked ? "목록 확인" : "대기"}
+              </strong>
             </div>
             <div>
               <span>중단 검토 약</span>
@@ -1263,7 +1343,8 @@ export function BookingWizard({
           <div>
             <span>준비</span>
             <strong>
-              약제 {draft.medicationsChecked ? "확인" : "미완료"}
+              복용약{" "}
+              {draft.medicationNone ? "없음 확인" : draft.medicationsChecked ? "목록 확인" : "미완료"}
               {draft.medicationDiscontinuations.some((item) =>
                 item.medicationName.trim(),
               )
@@ -1346,8 +1427,8 @@ export function BookingWizard({
             <Icon name="info" />
             <span>
               <strong>Backend 저장 범위</strong>
-              환자 식별·검사·일정·예약 구분{draft.bookingOrigin === "SAME_DAY" ? "·당일 확인" : ""}을 저장합니다. 검진 정보, 장정결제,
-              복용약, 추가 검사, 예약금과 확인 상태는 아직 정적 Prototype입니다.
+              환자 식별·검사·일정·예약 구분{draft.bookingOrigin === "SAME_DAY" ? "·당일 확인" : ""}과 복용약 확인·의사 중단
+              결정을 저장합니다. 검진 정보, 장정결제, 추가 검사, 예약금은 아직 정적 Prototype입니다.
             </span>
           </div>
         )}

@@ -1,6 +1,7 @@
 import { ApiError, apiRequest } from "./api.ts";
 import type { Appointment, CareCategory, ProcedureKind, ProcedureSet } from "./data";
 import type { BookingDraft } from "./scheduler";
+import { medicationCheckState, type MedicationState } from "./medicationsApi.ts";
 import type { VerificationState } from "./verificationsApi";
 
 export type ProcedureCode = "UPPER" | "COLON";
@@ -41,6 +42,7 @@ export type AppointmentResponse = {
   exception_memo: string | null;
   procedures: AppointmentProcedureResponse[];
   verification_state: VerificationState;
+  medication_state: MedicationState;
   row_version: number;
 };
 
@@ -183,7 +185,8 @@ export function mapAppointmentResponse(item: AppointmentResponse): Appointment {
     upperSedation: upper?.sedation_mode === "SEDATED",
     colonSedation: colon?.sedation_mode === "SEDATED",
     deposit: "대기",
-    medication: "대기",
+    // 복용약 확인은 실제 상태를 쓴다. 대장내시경이 없으면 "불필요"다.
+    medication: medicationCheckState(item.medication_state),
     d1: "대기",
     // 인적사항 이중확인만 실제 값이다. 검사 준비 완료를 뜻하지 않는다.
     verification: item.verification_state === "VERIFIED" ? "완료" : "대기",
@@ -200,10 +203,11 @@ export function mapAppointmentResponse(item: AppointmentResponse): Appointment {
     exceptionReason: item.exception_reason ?? undefined,
     memo:
       item.exception_memo ??
-      "일정·예약 핵심정보와 인적사항 이중확인은 Backend에 연결됨. 준비·약제·수납은 정적 Prototype 영역입니다.",
+      "일정·예약 핵심정보, 인적사항 이중확인, 복용약 확인은 Backend에 연결됨. 장정결·D-1·수납은 정적 Prototype 영역입니다.",
     backendManaged: true,
     rowVersion: item.row_version,
     verificationState: item.verification_state,
+    medicationState: item.medication_state,
     exceptionPending: item.exception_status === "PENDING" || undefined,
   };
 }

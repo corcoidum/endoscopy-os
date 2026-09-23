@@ -27,6 +27,7 @@ export const NAVIGATION: Array<{
       "verification.secondary",
       "verification.pacs",
       "procedure.write",
+      "medication.read",
     ],
   },
   {

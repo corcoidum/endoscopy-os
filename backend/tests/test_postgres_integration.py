@@ -18,7 +18,8 @@ from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.cli.seed_identity import seed_roles_and_permissions, seed_schedule_resource
@@ -27,7 +28,7 @@ from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
-from app.models import User, UserRole
+from app.models import MedicationItem, StaffProfile, User, UserRole
 from tests.conftest import ADMIN_PASSWORD, BOOKING_DAY, TEST_ORIGIN, iso
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL")
@@ -108,7 +109,8 @@ def postgres_app(postgres_session_factory: sessionmaker[Session]) -> FastAPI:
         db.execute(
             text(
                 "TRUNCATE appointment_history_events, appointment_procedures, "
-                "patient_verifications, appointments, schedule_additional_slots, "
+                "patient_verifications, medication_items, medication_review_revisions, "
+                "medication_reviews, appointments, schedule_additional_slots, "
                 "schedule_date_overrides, patient_history_events, "
                 "patients CASCADE"
             )
@@ -441,3 +443,188 @@ def test_upgrade_grants_primary_permission_to_existing_roles(
     _alembic("upgrade", "head")
     with postgres_session_factory() as db:
         assert db.execute(query).scalars().all() == ["ADMIN", "FRONT_DESK"]
+
+
+def _medication_url(appointment_id: str, suffix: str = "") -> str:
+    return f"/api/appointments/{appointment_id}/medication-review{suffix}"
+
+
+def _doctor(factory: sessionmaker[Session]) -> str:
+    with factory() as db:
+        profile = StaffProfile(display_name="합성 원장", staff_type="DOCTOR", is_active=True)
+        db.add(profile)
+        db.commit()
+        return str(profile.id)
+
+
+def _colon_with_checklist(client: TestClient, csrf_token: str, **checklist: object) -> str:
+    patient_id = _create_patient(client, csrf_token)
+    booked = client.post(
+        "/api/appointments",
+        headers=_headers(csrf_token),
+        json=_booking(patient_id, "09:00", COLON),
+    )
+    assert booked.status_code == 201, booked.text
+    appointment_id = str(booked.json()["id"])
+    saved = client.put(
+        _medication_url(appointment_id, "/checklist"),
+        headers=_headers(csrf_token),
+        json={"medication_status": "LIST_CONFIRMED", "medication_list": "합성약 1정", **checklist},
+    )
+    assert saved.status_code == 200, saved.text
+    return appointment_id
+
+
+def test_medication_texts_are_encrypted_at_rest(
+    postgres_app: FastAPI,
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    doctor_id = _doctor(postgres_session_factory)
+    with TestClient(postgres_app, base_url="https://testserver", client=LOCAL_CLIENT) as client:
+        csrf = _login(client)
+        appointment_id = _colon_with_checklist(
+            client,
+            csrf,
+            medication_list="합성비밀약 1정 아침",
+            surgery_history="합성수술력 기록",
+        )
+        added = client.post(
+            _medication_url(appointment_id, "/items"),
+            headers=_headers(csrf),
+            json={
+                "medication_name": "합성비밀약",
+                "decision": {
+                    "decision": "CONTINUE",
+                    "rationale": "합성지속사유",
+                    "physician_profile_id": doctor_id,
+                    "physician_confirmed": True,
+                },
+            },
+        )
+        assert added.status_code == 201, added.text
+        review = client.get(_medication_url(appointment_id)).json()
+
+    # 화면에는 복호화한 값이 돌아온다.
+    assert review["checklist"]["medication_list"] == "합성비밀약 1정 아침"
+    assert review["items"][0]["medication_name"] == "합성비밀약"
+    assert review["items"][0]["rationale"] == "합성지속사유"
+    assert review["checklist_history"][0]["snapshot"]["surgery_history"] == "합성수술력 기록"
+    # Database에는 평문이 남지 않는다.
+    with postgres_session_factory() as db:
+        stored = [
+            *db.execute(
+                text(
+                    "SELECT medication_list_ciphertext, surgery_history_ciphertext "
+                    "FROM medication_reviews"
+                )
+            ).one(),
+            *db.execute(
+                text("SELECT medication_name_ciphertext, rationale_ciphertext FROM medication_items")
+            ).one(),
+            db.execute(text("SELECT snapshot_ciphertext FROM medication_review_revisions")).scalar_one(),
+        ]
+    for value in stored:
+        for plain in ("합성비밀약", "합성수술력", "합성지속사유"):
+            assert plain.encode("utf-8") not in bytes(value)
+
+
+def test_active_medication_revision_is_unique_in_postgres(
+    postgres_app: FastAPI,
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    with TestClient(postgres_app, base_url="https://testserver", client=LOCAL_CLIENT) as client:
+        csrf = _login(client)
+        appointment_id = _colon_with_checklist(client, csrf)
+        added = client.post(
+            _medication_url(appointment_id, "/items"),
+            headers=_headers(csrf),
+            json={"medication_name": "합성 검토약"},
+        )
+        assert added.status_code == 201, added.text
+
+    with postgres_session_factory() as db:
+        current = db.scalar(select(MedicationItem))
+        assert current is not None
+        db.add(
+            MedicationItem(
+                review_id=current.review_id,
+                item_key=current.item_key,
+                revision=2,
+                status="ACTIVE",
+                medication_name_ciphertext=current.medication_name_ciphertext,
+                decision="PENDING",
+                recorded_by_user_id=current.recorded_by_user_id,
+                recorded_at=current.recorded_at,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+
+def test_concurrent_decisions_keep_one_active_revision(
+    postgres_app: FastAPI,
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    doctor_id = _doctor(postgres_session_factory)
+    with (
+        TestClient(postgres_app, base_url="https://testserver", client=LOCAL_CLIENT) as first,
+        TestClient(postgres_app, base_url="https://testserver", client=LOCAL_CLIENT) as second,
+    ):
+        first_csrf, second_csrf = _login(first), _login(second)
+        appointment_id = _colon_with_checklist(first, first_csrf)
+        added = first.post(
+            _medication_url(appointment_id, "/items"),
+            headers=_headers(first_csrf),
+            json={"medication_name": "합성 경합약"},
+        )
+        item_key = added.json()["items"][0]["item_key"]
+        url = _medication_url(appointment_id, f"/items/{item_key}/decision")
+
+        def decide(client: TestClient, csrf_token: str, days: int):
+            return lambda: client.post(
+                url,
+                headers=_headers(csrf_token),
+                json={
+                    "expected_revision": 1,
+                    "decision": "HOLD",
+                    "hold_days": days,
+                    "physician_profile_id": doctor_id,
+                    "physician_confirmed": True,
+                },
+            )
+
+        statuses = _race(decide(first, first_csrf, 3), decide(second, second_csrf, 5))
+
+    assert sorted(statuses) == [200, 409]
+    with postgres_session_factory() as db:
+        rows = db.execute(
+            text("SELECT status, decision FROM medication_items ORDER BY revision")
+        ).all()
+    assert [(row.status, row.decision) for row in rows] == [
+        ("SUPERSEDED", "PENDING"),
+        ("ACTIVE", "HOLD"),
+    ]
+
+
+def test_upgrade_grants_medication_permissions_to_existing_roles(
+    postgres_session_factory: sessionmaker[Session],
+) -> None:
+    """이미 Role이 Seed된 Database에도 0009 Migration이 복용약 권한을 부여한다."""
+
+    query = text(
+        "SELECT r.code AS role, p.code AS permission FROM iam.role_permissions rp "
+        "JOIN iam.roles r ON r.id = rp.role_id "
+        "JOIN iam.permissions p ON p.id = rp.permission_id "
+        "WHERE p.code LIKE 'medication.%' ORDER BY r.code, p.code"
+    )
+    _alembic("downgrade", "20260922_0008")
+    with postgres_session_factory() as db:
+        assert db.execute(query).all() == []
+    _alembic("upgrade", "head")
+    with postgres_session_factory() as db:
+        granted = {(row.role, row.permission) for row in db.execute(query)}
+    assert granted == {
+        (role, permission)
+        for role in ("ADMIN", "ENDOSCOPY_STAFF", "FRONT_DESK")
+        for permission in ("medication.decision", "medication.read", "medication.write")
+    }

@@ -13,6 +13,7 @@ from app.models import (
     Appointment,
     AppointmentHistoryEvent,
     AppointmentProcedure,
+    MedicationReview,
     Patient,
     ScheduleAdditionalSlot,
     ScheduleDateOverride,
@@ -853,6 +854,9 @@ def _get_appointment_for_update(db: Session, appointment_id: UUID) -> Appointmen
             selectinload(Appointment.resource),
             selectinload(Appointment.patient),
             selectinload(Appointment.verifications),
+            selectinload(Appointment.medication_review).selectinload(
+                MedicationReview.items
+            ),
         )
     )
     if appointment is None:
@@ -1202,7 +1206,9 @@ def list_appointments(
                 selectinload(Appointment.resource),
                 selectinload(Appointment.patient),
                 selectinload(Appointment.verifications),
-            selectinload(Appointment.verifications),
+                selectinload(Appointment.medication_review).selectinload(
+                    MedicationReview.items
+                ),
             )
             .order_by(
                 Appointment.service_date,

@@ -16,6 +16,14 @@ BookingBucket = Literal[
 BookingOrigin = Literal["ADVANCE", "SAME_DAY"]
 WorkflowState = Literal["BOOKED", "CANCELLED", "NO_SHOW"]
 VerificationState = Literal["UNVERIFIED", "PRIMARY_DONE", "VERIFIED", "REVERIFY_REQUIRED"]
+MedicationState = Literal[
+    "NOT_REQUIRED",
+    "CHECK_REQUIRED",
+    "PHYSICIAN_REQUIRED",
+    "RE_REVIEW_REQUIRED",
+    "NOTIFICATION_REQUIRED",
+    "COMPLETE",
+]
 ExceptionStatus = Literal["NOT_APPLICABLE", "PENDING", "CONFIRMED"]
 AppointmentEventType = Literal[
     "CREATED", "UPDATED", "CANCELLED", "NO_SHOW", "EXCEPTION_CONFIRMED"
@@ -157,6 +165,7 @@ class AppointmentResponse(BaseModel):
     schedule_policy_version: str
     procedures: list[AppointmentProcedureResponse]
     verification_state: VerificationState
+    medication_state: MedicationState
     row_version: int
     created_at: datetime
     updated_at: datetime

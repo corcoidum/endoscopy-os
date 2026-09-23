@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, String, func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.clock import today_in_seoul
@@ -14,6 +14,12 @@ from app.core.config import Settings
 from app.core.exceptions import ApiError
 from app.models import Patient, PatientHistoryEvent, User
 from app.schemas.patient import AgeMethod, SexCode
+from app.services.field_crypto import (
+    decode_test_ciphertext,
+    decrypted,
+    encrypt_text,
+    uses_test_ciphertext,
+)
 from app.services.verification_core import (
     PATIENT_CORE_FIELDS,
     invalidate_patient_verifications,
@@ -207,32 +213,6 @@ def get_patient(
     return patient
 
 
-def _test_ciphertext(value: str | None) -> bytes | None:
-    """SQLite Test DB는 합성 데이터만 사용하며 PostgreSQL 암호화 경로와 분리한다."""
-
-    return value.encode("utf-8") if value is not None else None
-
-
-def _encrypt_value(
-    db: Session,
-    value: str | None,
-    settings: Settings,
-):
-    if value is None:
-        return None
-    if db.get_bind().dialect.name == "sqlite":
-        return _test_ciphertext(value)
-    return func.pgp_sym_encrypt(
-        value,
-        settings.field_encryption_key_value,
-        "cipher-algo=aes256,compress-algo=0",
-    )
-
-
-def _decode_test_ciphertext(value: bytes | None) -> str | None:
-    return value.decode("utf-8") if value is not None else None
-
-
 def get_patient_record(
     db: Session,
     patient_id: UUID,
@@ -240,35 +220,23 @@ def get_patient_record(
     settings: Settings,
 ) -> PatientRecord:
     patient = get_patient(db, patient_id)
-    if db.get_bind().dialect.name == "sqlite":
+    if uses_test_ciphertext(db):
         return PatientRecord(
             patient=patient,
-            phone=_decode_test_ciphertext(patient.phone_ciphertext),
-            special_notes=_decode_test_ciphertext(
-                patient.special_notes_ciphertext
-            ),
+            phone=decode_test_ciphertext(patient.phone_ciphertext),
+            special_notes=decode_test_ciphertext(patient.special_notes_ciphertext),
         )
 
-    decrypted = db.execute(
+    values = db.execute(
         select(
-            func.pgp_sym_decrypt(
-                Patient.phone_ciphertext,
-                settings.field_encryption_key_value,
-            )
-            .cast(String)
-            .label("phone"),
-            func.pgp_sym_decrypt(
-                Patient.special_notes_ciphertext,
-                settings.field_encryption_key_value,
-            )
-            .cast(String)
-            .label("special_notes"),
+            decrypted(Patient.phone_ciphertext, settings).label("phone"),
+            decrypted(Patient.special_notes_ciphertext, settings).label("special_notes"),
         ).where(Patient.id == patient_id)
     ).one()
     return PatientRecord(
         patient=patient,
-        phone=decrypted.phone,
-        special_notes=decrypted.special_notes,
+        phone=values.phone,
+        special_notes=values.special_notes,
     )
 
 
@@ -386,8 +354,8 @@ def create_patient(
         name=normalized_name,
         birth_date=birth_date,
         sex=sex,
-        phone_ciphertext=_encrypt_value(db, normalized_phone, settings),
-        special_notes_ciphertext=_encrypt_value(db, normalized_notes, settings),
+        phone_ciphertext=encrypt_text(db, normalized_phone, settings),
+        special_notes_ciphertext=encrypt_text(db, normalized_notes, settings),
         created_by_user_id=actor_user_id,
         updated_by_user_id=actor_user_id,
     )
@@ -531,7 +499,7 @@ def update_patient(
             )
         new_phone = normalize_phone(raw_phone)
         if current.phone != new_phone:
-            patient.phone_ciphertext = _encrypt_value(
+            patient.phone_ciphertext = encrypt_text(
                 db, new_phone, settings
             )
             changed_fields.append("phone")
@@ -546,7 +514,7 @@ def update_patient(
             )
         new_notes = normalize_special_notes(raw_notes)
         if current.special_notes != new_notes:
-            patient.special_notes_ciphertext = _encrypt_value(
+            patient.special_notes_ciphertext = encrypt_text(
                 db, new_notes, settings
             )
             changed_fields.append("special_notes")

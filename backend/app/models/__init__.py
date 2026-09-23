@@ -18,6 +18,11 @@ from app.models.iam import (
     UserRole,
     UserSession,
 )
+from app.models.medication import (
+    MedicationItem,
+    MedicationReview,
+    MedicationReviewRevision,
+)
 from app.models.patient import Patient, PatientHistoryEvent
 from app.models.verification import PatientVerification
 
@@ -26,6 +31,9 @@ __all__ = [
     "Appointment",
     "AppointmentHistoryEvent",
     "AppointmentProcedure",
+    "MedicationItem",
+    "MedicationReview",
+    "MedicationReviewRevision",
     "Patient",
     "PatientHistoryEvent",
     "PatientVerification",

@@ -28,6 +28,7 @@ from app.models.iam import IAM_SCHEMA
 
 if TYPE_CHECKING:
     # Relationship 대상은 SQLAlchemy Registry가 Runtime에 해석한다.
+    from app.models.medication import MedicationReview
     from app.models.patient import Patient
     from app.models.verification import PatientVerification
 
@@ -402,6 +403,10 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     verifications: Mapped[list[PatientVerification]] = relationship(
         back_populates="appointment",
         order_by="PatientVerification.verified_at",
+    )
+    medication_review: Mapped[MedicationReview | None] = relationship(
+        back_populates="appointment",
+        uselist=False,
     )
 
 

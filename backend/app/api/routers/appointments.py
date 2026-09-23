@@ -15,7 +15,7 @@ from app.api.appointment_presenters import (
 from app.api.dependencies import Principal, require_permission, verify_csrf
 from app.core.exceptions import ApiError
 from app.db.session import get_db
-from app.models import Appointment, ScheduleAdditionalSlot
+from app.models import Appointment, MedicationReview, ScheduleAdditionalSlot
 from app.schemas.appointment import (
     AppointmentChangeRequest,
     AppointmentCreateRequest,
@@ -160,6 +160,9 @@ def get_appointment(
             selectinload(Appointment.resource),
             selectinload(Appointment.patient),
             selectinload(Appointment.verifications),
+            selectinload(Appointment.medication_review).selectinload(
+                MedicationReview.items
+            ),
         ),
     )
     if appointment is None:

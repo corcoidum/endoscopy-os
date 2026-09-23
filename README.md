@@ -165,6 +165,22 @@ Test)을 통과해 종료했습니다.
 
 ## 오랜만에 다시 시작할 때
 
+### macOS(맥북)에서 작업할 때
+
+Windows 전용 `.ps1`·`.cmd` 대신 같은 동작의 `scripts/*.sh`를 씁니다. 처음 준비, 자주 쓰는
+명령, 지금 상태와 다음 작업, 결정 대기 항목은
+[macOS 개발 안내](./docs/14-macos-development-guide.md)에 모아 두었습니다.
+
+```bash
+scripts/verify.sh
+```
+
+- `scripts/pg-test.sh`: 일회용 PostgreSQL Container에서만 PostgreSQL 전용 Test 실행
+- `scripts/e2e.sh`: 일회용 Database·실제 Backend·Chrome으로 Browser E2E 실행
+- `scripts/dev.sh`: `.env` 없이 합성 데이터 미리보기 실행(http://127.0.0.1:5176)
+
+같은 Script는 Windows Git Bash에서도 동작합니다.
+
 ### 원클릭 실행
 
 Repository Root의 `Start-EndoscopyOS.cmd`를 Double-click하면 다음 작업을 자동으로
@@ -576,9 +592,8 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
   약제 Master(참고 중단기간)는 아직 없습니다(Sprint 4 후속). 복용 분류로 의사 검토 대상을
   자동 판정하지 않으며, 예약 등록의 복용약 저장은 예약 생성과 한 Transaction이 아닙니다.
 - PostgreSQL 통합 Test는 `TEST_POSTGRES_URL`을 지정했을 때만 실행됩니다. 대상
-  Schema를 초기화하므로 일회용 Test Database에만 연결하세요. 실행 방법은
-  [Sprint 3B 1단계 보고서](./docs/10-sprint-3b-stage1-backend-report.md)를
-  참고하세요.
+  Schema를 초기화하므로 일회용 Test Database에만 연결하세요. `scripts/pg-test.sh`가
+  일회용 Container를 만들어 실행하고 지웁니다.
 - Docker Desktop 자동기동, 내부 DNS, Windows Firewall, Caddy Root 인증서
   배포는 실제 서버 PC에서 승인·시험해야 합니다.
 
@@ -592,4 +607,5 @@ Session Cookie와 함께 `Origin`, `X-CSRF-Token`을 검증합니다.
 - [Sprint 3B 2단계 Frontend 연결 보고서](./docs/11-sprint-3b-stage2-frontend-api-report.md)
 - [Sprint 3B 종료 검증·Sprint 4A 인적사항 1·2차 확인 보고서](./docs/12-sprint-4a-identity-verification-report.md)
 - [Sprint 4B 대장내시경 복용약 확인·의사 결정 보고서](./docs/13-sprint-4b-medication-review-report.md)
+- [macOS 개발 안내·현재 상태·다음 작업](./docs/14-macos-development-guide.md)
 - [병리 PDF Import 보안 설계안 (Sprint 6 참고)](./docs/09-pathology-pdf-import-security-design.md)
